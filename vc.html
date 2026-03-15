@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Cricket Commentary · Public</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #1e2b38; color: white; margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .scorecard { max-width: 600px; width: 100%; background: #0f1a24; border-radius: 20px; padding: 25px; box-shadow: 0 20px 30px rgba(0,0,0,0.5); }
+        .header { text-align: center; border-bottom: 2px solid #ffb347; padding-bottom: 10px; margin-bottom: 20px; }
+        .team-vs { font-size: 28px; font-weight: 800; color: #ffb347; }
+        .status { background: #1e2f3a; padding: 20px; border-radius: 12px; text-align: center; }
+        .live-badge { background: #dc3545; color: white; padding: 5px 15px; border-radius: 20px; font-weight: bold; display: inline-block; margin-bottom: 15px; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+        audio { width: 100%; margin-top: 20px; }
+    </style>
+</head>
+<body>
+<div class="scorecard">
+    <div class="header">
+        <div class="team-vs">🏏 INDIA <span>VS</span> BIHAR</div>
+    </div>
+    
+    <div class="status">
+        <div class="live-badge" id="liveIndicator">🔴 WAITING FOR BROADCAST</div>
+        <p id="message">Commentary शुरू होने का इंतज़ार कर रहे हैं...</p>
+        <audio id="audioPlayer" controls autoplay></audio>
+    </div>
+</div>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+
+<script>
+    // 🔥 Your Firebase Config (same as admin)
+    const firebaseConfig = {
+        apiKey: "AIzaSyCUnfAhVVo1lR_Rijfl9gzSVaeb5cCsOlU",
+        authDomain: "vikas-7e5f7.firebaseapp.com",
+        databaseURL: "https://vikas-7e5f7-default-rtdb.firebaseio.com",
+        projectId: "vikas-7e5f7",
+        storageBucket: "vikas-7e5f7.firebasestorage.app",
+        messagingSenderId: "561706909193",
+        appId: "1:561706909193:android:a792af86624eeaad8ac2d8"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    const roomId = 'live_commentary_room';
+    let peerConnection;
+    let remoteStream = new MediaStream();
+    const audioPlayer = document.getElementById('audioPlayer');
+
+    const configuration = {
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            {
+                urls: 'turn:openrelay.metered.ca:80',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            }
+        ]
+    };
+
+    async function joinBroadcast() {
+        try {
+            const roomDoc = await db.collection('rooms').doc(roomId).get();
+            
+            if (!roomDoc.exists || !roomDoc.data().offer) {
+                document.getElementById('message').innerText = '⏳ Broadcast शुरू होने का इंतज़ार...';
+                setTimeout(joinBroadcast, 3000);
+                return;
+            }
+
+            document.getElementById('liveIndicator').innerText = '🔴 LIVE NOW';
+            document.getElementById('message').innerText = 'Live commentary चल रहा है...';
+
+            peerConnection = new RTCPeerConnection(configuration);
+
+            peerConnection.ontrack = (event) => {
+                event.streams[0].getAudioTracks().forEach(track => {
+                    remoteStream.addTrack(track);
+                });
+                audioPlayer.srcObject = remoteStream;
+                audioPlayer.play().catch(e => console.log('Autoplay prevented:', e));
+            };
+
+            const offerData = roomDoc.data().offer;
+            const offer = new RTCSessionDescription(offerData);
+            await peerConnection.setRemoteDescription(offer);
+
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+
+            await db.collection('rooms').doc(roomId)
+                .collection('answers').add({
+                    type: answer.type,
+                    sdp: answer.sdp
+                });
+
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    db.collection('rooms').doc(roomId)
+                        .collection('viewerCandidates').add(event.candidate.toJSON());
+                }
+            };
+
+            db.collection('rooms').doc(roomId).collection('broadcasterCandidates')
+                .onSnapshot((snapshot) => {
+                    snapshot.docChanges().forEach((change) => {
+                        if (change.type === 'added') {
+                            const candidate = new RTCIceCandidate(change.doc.data());
+                            peerConnection.addIceCandidate(candidate);
+                        }
+                    });
+                });
+
+        } catch (error) {
+            console.error('Error:', error);
+            document.getElementById('message').innerText = '❌ Connection error';
+        }
+    }
+
+    window.onload = joinBroadcast;
+</script>
+</body>
+</html>
