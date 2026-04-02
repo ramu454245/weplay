@@ -1,3 +1,0 @@
-// config.js
-const BOT_TOKEN = '8214662223:AAE8Y17RmB9-_2j2YXbm3EpOnTE5Wk7BQKU';
-const CHAT_ID = '6677946042';
